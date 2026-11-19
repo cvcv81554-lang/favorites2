@@ -44,6 +44,9 @@ class Privacy {
     try { return await _auth.authenticate(localizedReason: 'افتحي مكتبتك الخاصة', biometricOnly: false, persistAcrossBackgrounding: true); } catch (_) { return false; }
   }
 
+  /// هل الجهاز تلفاز (Android TV: ميزة leanback)؟
+  static Future<bool> isTv() async { if (kIsWeb) return false; try { return await _ch.invokeMethod<bool>('isTv') ?? false; } catch (_) { return false; } }
+
   /// أندرويد: FLAG_SECURE (لا لقطات شاشة، والمحتوى مخفي في قائمة التطبيقات). على المنصات الأخرى غطاء داخل التطبيق.
   static Future<void> applySecure(bool on) async { if (kIsWeb) return; try { await _ch.invokeMethod('setSecure', {'on': on}); } catch (_) {} }
 }

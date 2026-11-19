@@ -94,7 +94,8 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _tile(Icons.upload_rounded, 'تصدير نسخة احتياطية', 'نفس الصيغة — تُقرأ في التطبيقين. $n ممثلة.', _busy || n == 0 ? null : _export),
         _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
       ]),
-      _group('مكتبتي', [_tile(Icons.insights_rounded, 'الإحصائيات وملخّص السنة', 'أكثر من شاهدتِ، سلاسل المشاهدة، البلدان، الأعمار…', () => context.push('/stats'))]),
+      _group('مكتبتي', [_tile(Icons.insights_rounded, 'الإحصائيات وملخّص السنة', 'أكثر من شاهدتِ، سلاسل المشاهدة، البلدان، الأعمار…', () => context.push('/stats')),
+        _tile(Icons.tv_rounded, 'المزامنة مع الشاشة', 'أرسلي مكتبتك إلى Android TV على نفس الشبكة', () => context.push('/sync'))]),
       _group('الإشعارات والتحديث في الخلفية', [const _BgSection()]),
       _group('المصادر الرسمية', [
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),

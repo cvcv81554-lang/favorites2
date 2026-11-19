@@ -14,6 +14,7 @@ import 'ui/features/privacy/lock_gate.dart';
 import 'ui/features/sources/source_search.dart';
 import 'ui/features/stats/stats_screen.dart';
 import 'ui/features/studio/studio_screen.dart';
+import 'ui/features/sync/sync_screen.dart';
 import 'ui/features/works/works_screen.dart';
 import 'ui/shell.dart';
 
@@ -38,15 +39,16 @@ final _router = GoRouter(
       ],
     ),
     GoRoute(path: '/p/:id', builder: (_, s) => PerformerScreen(id: s.pathParameters['id']!)),
+    GoRoute(path: '/sync', builder: (_, _) => const SyncScreen()),
     GoRoute(path: '/stats', builder: (_, _) => const StatsScreen()),
     GoRoute(path: '/search', builder: (_, s) => SourceSearchScreen(initial: s.uri.queryParameters['q'] ?? '', linkTo: s.uri.queryParameters['link'])),
   ],
 );
 
-class FavoritesApp extends StatelessWidget {
+class FavoritesApp extends ConsumerWidget {
   const FavoritesApp({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp.router(
+  Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
     title: 'المفضلة',
     debugShowCheckedModeBanner: false,
     theme: buildTheme(),
@@ -55,7 +57,11 @@ class FavoritesApp extends StatelessWidget {
     locale: const Locale('ar'),
     supportedLocales: const [Locale('ar'), Locale('en')],
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    builder: (c, child) => LockGate(child: child!),
+    builder: (c, child) {
+      final tv = ref.watch(isTvProvider).value ?? false;   // شاشة 10 أقدام: نص أكبر
+      final w = LockGate(child: child!);
+      return tv ? MediaQuery(data: MediaQuery.of(c).copyWith(textScaler: const TextScaler.linear(1.25)), child: w) : w;
+    },
     routerConfig: _router,
     shortcuts: {...WidgetsApp.defaultShortcuts, const SingleActivator(LogicalKeyboardKey.select): const ActivateIntent()},
   );

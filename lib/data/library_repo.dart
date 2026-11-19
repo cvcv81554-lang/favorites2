@@ -15,6 +15,9 @@ class LibraryRepo {
   final _recs = stringMapStoreFactory.store('recs');
   final _kv = StoreRef<String, Object?>('kv');
 
+  /// للاختبارات (قاعدة في الذاكرة).
+  factory LibraryRepo.withDb(Database db) => LibraryRepo._(db);
+
   static Future<LibraryRepo> open({String name = 'favorites2'}) async {
     await warmPhotoDir();
     return LibraryRepo._(await openAppDb(name));

@@ -1,5 +1,6 @@
 package com.favlib.favorites2
 
+import android.content.pm.PackageManager
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -17,6 +18,7 @@ class MainActivity : FlutterFragmentActivity() {
                     if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                     result.success(true)
                 }
+                "isTv" -> result.success(packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK))
                 else -> result.notImplemented()
             }
         }
