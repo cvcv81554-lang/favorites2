@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../data/background.dart';
@@ -93,6 +94,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _tile(Icons.upload_rounded, 'تصدير نسخة احتياطية', 'نفس الصيغة — تُقرأ في التطبيقين. $n ممثلة.', _busy || n == 0 ? null : _export),
         _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
       ]),
+      _group('مكتبتي', [_tile(Icons.insights_rounded, 'الإحصائيات وملخّص السنة', 'أكثر من شاهدتِ، سلاسل المشاهدة، البلدان، الأعمار…', () => context.push('/stats'))]),
       _group('الإشعارات والتحديث في الخلفية', [const _BgSection()]),
       _group('المصادر الرسمية', [
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),

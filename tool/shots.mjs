@@ -49,6 +49,7 @@ await shoot(phone, 'phone-07-discover', '/discover');
 await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 900); });
 await shoot(desk, 'desk-05-discover', '/discover');
 await shoot(phone, 'phone-09-studio', '/studio');
+await shoot(phone, 'phone-10-stats', '/stats');
 await shoot(desk, 'desk-06-studio', '/studio');
 await shoot(desk, 'desk-04-works', '/works');
 await shoot(desk, 'desk-01-home', '/');

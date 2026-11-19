@@ -40,6 +40,7 @@ class HomeScreen extends ConsumerWidget {
             SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Row(children: [
               _Stat('${all.length}', 'ممثلة'), _Stat('${favs.length}', 'مفضلة'), _Stat('$works', 'عمل'), _Stat('${upc.length}', 'لها جديد قادم'),
             ]))),
+            SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s3, S.s4, 0), child: OutlinedButton.icon(onPressed: () => context.push('/stats'), icon: const Icon(Icons.insights_rounded, color: C.gold), label: Text('ملخّص ${DateTime.now().year} والإحصائيات')))),
             if (viewed.isNotEmpty) _row(context, 'تابعتِ مؤخرًا', viewed.take(16).toList()),
             _row(context, 'أُضيفت حديثًا', recent.take(16).toList()),
             if (bday.isNotEmpty) _row(context, '🎂 أعياد ميلاد هذا الشهر', bday),
