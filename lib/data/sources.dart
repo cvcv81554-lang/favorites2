@@ -37,15 +37,17 @@ class StashDB {
     final r = await sourceClient.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'ApiKey': key}, body: jsonEncode({'query': query, 'variables': vars ?? {}})).timeout(_timeout);
     if (r.statusCode == 401 || r.statusCode == 403) throw SourceError('مفتاح StashDB غير صالح', r.statusCode);
     final j = jsonDecode(utf8.decode(r.bodyBytes));
-    if (r.statusCode != 200 && (j is! Map || j['data'] == null)) throw SourceError('StashDB: خطأ ${r.statusCode}', r.statusCode);
-    if (j is Map && j['errors'] is List && j['data'] == null) throw SourceError('StashDB: ${(j['errors'] as List).first['message']}');
+    if (r.statusCode != 200 && (j is! Map || j['data'] == null)) throw SourceError('StashDB: خطأ ${r.statusCode}', (r.statusCode == 400 || r.statusCode == 422) ? -1 : r.statusCode);
+    if (j is Map && j['errors'] is List && j['data'] == null) throw SourceError('StashDB: ${(j['errors'] as List).first['message']}', -1);   // -1 = خطأ استعلام (يُجرَّب البديل)
     return Map<String, dynamic>.from((j as Map)['data'] ?? {});
   }
 
   static Future<bool> test(String key) async { await q('query{me{name}}', null, key); return true; }
 
   static Future<List<Candidate>> search(String term) async {
-    final d = await q(r'query($t:String!){searchPerformer(term:$t,limit:12){id name aliases birth_date country height career_start_year gender images{url width height}}}', {'t': term});
+    Map<String, dynamic> d;
+    try { d = await q(r'query($t:String!){searchPerformer(term:$t,limit:12){id name aliases birth_date country height career_start_year gender images{url width height}}}', {'t': term}); }
+    on SourceError catch (e) { if (e.status != -1) rethrow; d = await q(r'query($t:String!){searchPerformer(term:$t,limit:12){id name aliases birth_date country gender images{url}}}', {'t': term}); }
     return [for (final p in (d['searchPerformer'] as List? ?? const []))
       if (p is Map && (p['gender'] == null || p['gender'] == 'FEMALE'))
         Candidate(source: 'stash', id: '${p['id']}', name: '${p['name'] ?? ''}', aliases: ((p['aliases'] as List?) ?? const []).join(', '), birth: '${p['birth_date'] ?? ''}',
@@ -55,12 +57,17 @@ class StashDB {
   static Future<List<Map<String, dynamic>>> scenes(String performerId, {int maxPages = 5}) async {
     final out = <Map<String, dynamic>>[];
     for (var page = 1; page <= maxPages; page++) {
-      final d = await q(r'query($id:ID!,$p:Int!){queryScenes(input:{performers:{value:[$id],modifier:INCLUDES},page:$p,per_page:100,sort:DATE,direction:DESC}){count scenes{id title release_date duration details studio{name} images{url width height} tags{name}}}}', {'id': performerId, 'p': page});
+      Map<String, dynamic>? d;
+      for (final f in _sceneFieldSets) {
+        try { d = await q('query(\$id:ID!,\$p:Int!){queryScenes(input:{performers:{value:[\$id],modifier:INCLUDES},page:\$p,per_page:100${f.$2}}){count scenes{${f.$1}}}}', {'id': performerId, 'p': page}); break; }
+        on SourceError catch (e) { if (e.status != -1 || f == _sceneFieldSets.last) rethrow; }
+      }
+      d ??= {};
       final qs = d['queryScenes'] as Map? ?? {};
       final sc = qs['scenes'] as List? ?? const [];
       for (final s in sc) {
         if (s is! Map) continue;
-        final yd = ydOf(s['release_date']);
+        final yd = ydOf(s['release_date'] ?? s['date']);
         out.add({'t': '${s['title'] ?? ''}'.trim(), 's': '${(s['studio'] as Map?)?['name'] ?? ''}', ...yd,
           if ((s['duration'] as num?) != null) 'du': ((s['duration'] as num) > 180 ? (s['duration'] as num) / 60 : s['duration']).round(),
           if ('${s['details'] ?? ''}'.isNotEmpty) 'ds': _cut('${s['details']}', 280),
@@ -109,6 +116,13 @@ Future<List<Map<String, dynamic>>> stashRecPool({required List<(String id, doubl
   }
   return byId.values.toList();
 }
+
+/// مجموعات حقول المشاهد من الأغنى للأبسط، مع الترتيب أو بدونه — إن اختلف إصدار خادم StashDB لا يفشل الجلب كله.
+const _sceneFieldSets = <(String, String)>[
+  ('id title release_date duration details studio{name} images{url width height} tags{name}', ',sort:DATE,direction:DESC'),
+  ('id title date duration details studio{name} images{url width height}', ',sort:DATE,direction:DESC'),
+  ('id title date studio{name}', ''),
+];
 
 // ===================== ThePornDB (REST الرسمي) =====================
 class TPDB {

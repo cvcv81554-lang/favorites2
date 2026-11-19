@@ -170,6 +170,15 @@ class _WorkSheetState extends ConsumerState<_WorkSheet> {
         avatar: CircleAvatar(backgroundColor: C.surface2, child: ClipOval(child: SizedBox.expand(child: Photo(p.cover, name: p.name, cacheWidth: 96)))),
         label: Text(p.name), onPressed: () { Navigator.pop(context); context.push('/p/${p.id}'); })]),
       if (g.u.isNotEmpty) Padding(padding: const EdgeInsets.only(top: S.s3), child: SelectableText(g.u, style: const TextStyle(color: C.muted, fontSize: 12))),
+      const SizedBox(height: S.s3),
+      Align(alignment: AlignmentDirectional.centerStart, child: TextButton.icon(onPressed: () async {
+        final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('حذف العمل؟'), content: Text('يُزال «${g.t}» من ${g.who.length == 1 ? 'صفحة ${g.who.first.name}' : '${g.who.length} ممثلات'}.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(style: FilledButton.styleFrom(backgroundColor: C.danger, foregroundColor: Colors.white), onPressed: () => Navigator.pop(c, true), child: const Text('حذف'))]));
+        if (ok != true) return;
+        final byP = <String, Set<int>>{}; for (final r in g.refs) { (byP[r.p.id] ??= {}).add(r.idx); }
+        await ref.read(libraryProvider.notifier).upsertMany([for (final r in g.refs.map((x) => x.p).toSet()) r.copyWith({'works': [for (var k = 0; k < r.works.length; k++) if (!byP[r.id]!.contains(k)) r.works[k]]})]);
+        if (context.mounted) Navigator.pop(context);
+      }, icon: const Icon(Icons.delete_outline_rounded, color: C.danger), label: const Text('حذف العمل', style: TextStyle(color: C.danger)))),
     ]));
   }
 }

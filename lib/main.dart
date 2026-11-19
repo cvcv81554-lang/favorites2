@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/semantics.dart' show SemanticsBinding;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +25,8 @@ import 'ui/shell.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try { await initBackground(); } catch (_) {}   // لا يمنع فتح التطبيق إن تعذّر
+  // اختبار آلي على الويب فقط (?qa=1): شجرة إتاحة كي يضغط Playwright الأزرار بأسمائها
+  if (kIsWeb && Uri.base.queryParameters['qa'] == '1') SemanticsBinding.instance.ensureSemantics();
   runApp(const ProviderScope(child: FavoritesApp()));
 }
 

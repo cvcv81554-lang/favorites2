@@ -99,7 +99,7 @@ class _PosterCardState extends State<PosterCard> {
     return FocusableActionDetector(
       onShowFocusHighlight: (v) => setState(() => _focus = v),
       actions: {ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) { widget.onTap(); return null; })},
-      child: AnimatedScale(
+      child: Semantics(button: true, label: p.name, child: AnimatedScale(
         scale: _focus ? 1.05 : 1, duration: S.fast, curve: S.ease,
         child: GestureDetector(
           onTap: widget.onTap,
@@ -120,7 +120,7 @@ class _PosterCardState extends State<PosterCard> {
             ]),
           ),
         ),
-      ),
+      )),
     );
   }
 }

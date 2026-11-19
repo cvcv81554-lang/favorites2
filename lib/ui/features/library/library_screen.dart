@@ -27,9 +27,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     return Scaffold(
       floatingActionButton: Padding(
         padding: EdgeInsets.only(bottom: w < 760 ? 84 : 0),   // فوق الشريط السفلي على الجوال
-        child: FloatingActionButton.extended(
-          onPressed: () => showEditSheet(context, ref), icon: const Icon(Icons.add_rounded), label: const Text('إضافة'),
-          backgroundColor: C.gold, foregroundColor: C.onAccent)),
+        child: FloatingActionButton(
+          tooltip: 'إضافة ممثلة', onPressed: () => showEditSheet(context, ref),
+          backgroundColor: C.gold, foregroundColor: C.onAccent, child: const Icon(Icons.add_rounded))),
       body: SafeArea(bottom: false, child: CustomScrollView(slivers: [
         SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

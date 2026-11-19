@@ -6,12 +6,14 @@ import '../../../domain/performer.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../../data/sources.dart' show mergeWorks;
 import '../../../domain/sanitize.dart';
 import '../works/works_screen.dart';
 import '../sources/source_search.dart';
 import '../studio/studio_screen.dart';
 import '../tools/tools_screen.dart';
 import 'edit_sheet.dart';
+import 'photos.dart';
 
 class PerformerScreen extends ConsumerStatefulWidget {
   const PerformerScreen({super.key, required this.id});
@@ -45,6 +47,12 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
             PopupMenuButton<String>(onSelected: (v) async {
               if (v == 'del') { _delete(p); return; }
               if (v == 'lists') { showListsSheet(context, ref, p); return; }
+              if (v == 'photos') {
+                final m = ScaffoldMessenger.of(context);
+                final n = await addPhotosFromGallery(ref, p);
+                m.showSnackBar(SnackBar(content: Text(n < 0 ? 'وصلتِ إلى الحد (30 صورة)' : n == 0 ? 'لم تُختر صور' : 'أُضيفت $n صورة')));
+                return;
+              }
               if (v == 'link') { context.push('/search?q=${Uri.encodeQueryComponent(p.name)}&link=${p.id}'); return; }
               if (v == 'sync') {
                 final m = ScaffoldMessenger.of(context);
@@ -54,6 +62,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               }
             }, itemBuilder: (_) => [
               if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty) const PopupMenuItem(value: 'sync', child: Text('تحديث الأعمال من المصادر')),
+              const PopupMenuItem(value: 'photos', child: Text('إضافة صور من الجهاز')),
               const PopupMenuItem(value: 'lists', child: Text('القوائم')),
               PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
               const PopupMenuItem(value: 'del', child: Text('حذف')),
@@ -68,7 +77,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
                 final v = _pc.hasClients && _pc.position.haveDimensions ? (1 - ((_pc.page ?? 0) - i).abs() * .08).clamp(.9, 1.0) : (i == 0 ? 1.0 : .92);
                 return Transform.scale(scale: v, child: child);
               }, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: ClipRRect(borderRadius: BorderRadius.circular(S.rXl),
-                child: i == 0 ? Hero(tag: 'p-${p.id}', child: Photo(photos[i], name: p.name)) : Photo(photos[i], name: p.name)))),
+                child: GestureDetector(onTap: p.photos.isEmpty ? null : () => openPhotoViewer(context, ref, p, i), child: i == 0 ? Hero(tag: 'p-${p.id}', child: Photo(photos[i], name: p.name)) : Photo(photos[i], name: p.name))))),
             )),
             if (photos.length > 1) Positioned(bottom: 48, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               for (var i = 0; i < photos.length && i < 12; i++) AnimatedContainer(duration: S.fast, margin: const EdgeInsets.symmetric(horizontal: 3), width: i == _page ? 18 : 6, height: 6,
@@ -89,7 +98,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
           if (p.tags.isNotEmpty) ...[const SizedBox(height: S.s4), Wrap(spacing: S.s2, runSpacing: S.s2, children: [for (final t in p.tags) _chip('#$t')])],
           if (p.notes.isNotEmpty) ...[const SizedBox(height: S.s4), Container(width: double.infinity, padding: const EdgeInsets.all(S.s4), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)), child: Text(p.notes, style: const TextStyle(height: 1.7)))],
         ]))),
-        SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدتِ ${p.watchedCount}')),
+        SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدتِ ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
         if (works.isEmpty) const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(S.s4), child: Text('لا أعمال مسجلة بعد.', style: TextStyle(color: C.muted)))),
         SliverList.builder(itemCount: works.length, itemBuilder: (c, i) => _WorkTile(w: works[i])),
         const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -145,4 +154,28 @@ class _WorkTile extends ConsumerWidget {
       trailing: upc ? const Chip(label: Text('قادم'), visualDensity: VisualDensity.compact) : seen ? const Icon(Icons.check_circle_rounded, color: C.ok) : (w['q'] == 1 ? const Icon(Icons.bookmark_rounded, color: C.gold) : null),
     );
   }
+}
+
+/// إضافة عمل يدويًا (العنوان مطلوب). نفس قواعد الدمج: لا تكرار لنفس العنوان والاستوديو.
+Future<void> showAddWork(BuildContext context, WidgetRef ref, Performer p) async {
+  final t = TextEditingController(), s = TextEditingController(), d = TextEditingController(); var seen = false, q = false; String err = '';
+  final ok = await showDialog<bool>(context: context, builder: (c) => StatefulBuilder(builder: (c, set) => AlertDialog(
+    title: const Text('إضافة عمل'),
+    content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      TextField(controller: t, autofocus: true, decoration: const InputDecoration(labelText: 'العنوان')),
+      const SizedBox(height: 8), TextField(controller: s, decoration: const InputDecoration(labelText: 'الاستوديو / الموقع')),
+      const SizedBox(height: 8), TextField(controller: d, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'التاريخ', hintText: '2024-05-20 أو 2024')),
+      CheckboxListTile(value: seen, onChanged: (v) => set(() => seen = v ?? false), title: const Text('شاهدته'), contentPadding: EdgeInsets.zero),
+      CheckboxListTile(value: q, onChanged: (v) => set(() => q = v ?? false), title: const Text('للمشاهدة'), contentPadding: EdgeInsets.zero),
+      if (err.isNotEmpty) Text(err, style: const TextStyle(color: C.danger)),
+    ])),
+    actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(onPressed: () { if (t.text.trim().isEmpty) { set(() => err = 'العنوان مطلوب'); return; } Navigator.pop(c, true); }, child: const Text('إضافة'))])));
+  if (ok == true) {
+    final w = <String, dynamic>{'t': t.text.trim(), if (s.text.trim().isNotEmpty) 's': s.text.trim(), ...ydOf(d.text), if (seen) 'w': 1, if (seen) 'wd': todayStr(), if (q && !seen) 'q': 1};
+    final cur = ref.read(libraryProvider.notifier).items.where((x) => x.id == p.id).firstOrNull ?? p;
+    final m = mergeWorks(cur.works, [w]);
+    await ref.read(libraryProvider.notifier).upsert(cur.copyWith({'works': m.list}));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m.added > 0 ? 'أُضيف العمل' : 'العمل موجود مسبقًا — حُدّثت بياناته')));
+  }
+  t.dispose(); s.dispose(); d.dispose();
 }

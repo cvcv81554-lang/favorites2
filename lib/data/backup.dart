@@ -87,10 +87,16 @@ class Backup {
   }
 
   /// قواعد الدمج (لا حذف أبدًا): جديد ⇒ يُضاف؛ موجود ⇒ يُستبدل فقط إن كان أحدث، وإلا تُكمل صوره الناقصة فقط.
-  static Future<({int added, int updated, int photosFixed})> apply(LibraryRepo repo, BackupFile f, List<Performer> current) async {
+  /// قراءة ملف كبير خارج خيط الواجهة (لا تجمّد). الويب: مباشرة.
+  static Future<BackupFile> parseAsync(String text) => kIsWeb ? Future.value(parse(text)) : Isolate.run(() => parse(text));
+
+  static Future<({int added, int updated, int photosFixed})> apply(LibraryRepo repo, BackupFile f, List<Performer> current, {void Function(int done, int total)? onProgress}) async {
     final byId = {for (final p in current) p.id: p};
     final out = <Performer>[]; var added = 0, updated = 0, fixed = 0;
+    var i = 0;
     for (final m in f.items) {
+      onProgress?.call(i++, f.items.length);
+      if (out.length >= 25) { await repo.save(out); out.clear(); }   // حفظ على دفعات: لا يضيع العمل إن انقطع
       final cur = byId[m['id']];
       final refs = <String>[];
       final photos = (m['photos'] as List).cast<String>();

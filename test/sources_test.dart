@@ -51,6 +51,17 @@ void main() {
     expect(w.single['p'], 'https://img.test/w.jpg'); expect(w.single['is'], 'sc-1'); expect(w.single['tg'], ['tag1']);
   });
 
+  test('StashDB: إن رفض الخادم حقلًا (إصدار أقدم) يُستخدم استعلام بديل ولا يفشل الجلب', () async {
+    var calls = 0;
+    sourceClient = MockClient((r) async {
+      calls++; final q = jsonDecode(r.body)['query'] as String;
+      if (q.contains('release_date')) return http.Response(jsonEncode({'errors': [{'message': 'Cannot query field "release_date" on type "Scene".'}]}), 422);
+      return http.Response(jsonEncode({'data': {'queryScenes': {'count': 1, 'scenes': [{'id': 's1', 'title': 'Old Server Scene', 'date': '2020-02-03', 'studio': {'name': 'St'}}]}}}), 200);
+    });
+    final w = await StashDB.scenes('pid', maxPages: 1);
+    expect(w.single['t'], 'Old Server Scene'); expect(w.single['d'], '2020-02-03'); expect(calls, 2);
+  });
+
   test('ThePornDB: البحث بالمفتاح، والبوابة على تاريخ الميلاد', () async {
     sourceClient = MockClient((r) async {
       expect(r.headers['Authorization'], 'Bearer T-KEY');

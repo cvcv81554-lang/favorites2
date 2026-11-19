@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../data/keys.dart';
@@ -78,7 +79,10 @@ class StudioScreen extends ConsumerWidget {
         ])),
         IconButton.filledTonal(tooltip: 'اكتشاف صور جديدة', onPressed: st.busy ? null : () => ref.read(studioProvider.notifier).discover(), icon: st.busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.auto_awesome_rounded)),
       ]))),
-      if (st.err.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(S.s4), child: Text(st.err, style: const TextStyle(color: C.muted)))),
+      if (st.err.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(S.s4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(st.err, style: const TextStyle(color: C.muted)),
+        if (st.err.contains('مفتاح')) Padding(padding: const EdgeInsets.only(top: S.s2), child: FilledButton.icon(onPressed: () => context.go('/more'), icon: const Icon(Icons.key_rounded), label: const Text('أضيفي مفتاح StashDB'))),
+      ]))),
       if (imgs.isEmpty && !st.busy)
         SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'معرضك الخاص', body: 'يجمع صور ممثلات مكتبتك من StashDB وصور مشاهدها، ويرتبها في ألبومات ذكية.\nكل الصور تبقى على جهازك.',
           actions: [FilledButton.icon(onPressed: () => ref.read(studioProvider.notifier).discover(), icon: const Icon(Icons.auto_awesome_rounded), label: const Text('ابدأ الاكتشاف'))]))

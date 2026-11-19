@@ -43,7 +43,7 @@ class _LockGateState extends ConsumerState<LockGate> with WidgetsBindingObserver
     final s = ref.read(privacyProvider).value; if (s == null) return;
     if (bioInFlight) return;   // نافذة البصمة/الوجه نفسها تجعل التطبيق inactive — لا تُحتسب غيابًا
     if (st == AppLifecycleState.inactive) {
-      if (s.secure || s.lock) setState(() => _cover = true);   // غطاء فقط (قائمة التطبيقات، مربعات النظام)
+      // لا غطاء هنا: سحب لوحة الإشعارات ومربعات النظام تجعل التطبيق inactive. على أندرويد FLAG_SECURE يخفي المعاينة أصلًا.
     } else if (st == AppLifecycleState.hidden || st == AppLifecycleState.paused) {
       _away ??= DateTime.now();
       if (s.secure || s.lock) setState(() => _cover = true);

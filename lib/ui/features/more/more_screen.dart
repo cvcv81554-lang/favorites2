@@ -47,7 +47,8 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         setState(() => _status = 'فك التشفير…');
         text = await Backup.decrypt(text, pw);
       }
-      final f = Backup.parse(text);
+      setState(() => _status = 'قراءة النسخة…');
+      final f = await Backup.parseAsync(text);
       if (!mounted) return;
       final go = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('استيراد النسخة'),
         content: Text('${f.items.length} ممثلة في الملف.${f.minorsSkipped > 0 ? '\nستُتجاهل ${f.minorsSkipped} (أقل من 18 أو تاريخ غير صالح).' : ''}${f.invalid > 0 ? '\n${f.invalid} سجل غير صالح.' : ''}\n\nلا يُحذف شيء من مكتبتك: الجديد يُضاف، والأحدث يُحدَّث فقط.'),
@@ -55,7 +56,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
       if (go != true) return;
       setState(() => _status = 'حفظ الصور والسجلات…');
       final lib = ref.read(libraryProvider.notifier);
-      final res = await Backup.apply(lib.repo, f, lib.items);
+      final res = await Backup.apply(lib.repo, f, lib.items, onProgress: (d, n) { if (mounted && (d % 5 == 0 || d == n - 1)) setState(() => _status = 'حفظ الصور والسجلات… ${d + 1} / $n'); });
       // دمج لا استبدال (كالتطبيق السابق): القوائم بالمعرّف، والتفضيلات فقط للمفاتيح غير الموجودة
       for (final k in ['lists', 'wlists']) {
         final cur = [for (final e in (await lib.repo.kvGet(k) as List? ?? const [])) if (e is Map) Map<String, dynamic>.from(e)];

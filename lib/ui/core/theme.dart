@@ -66,7 +66,7 @@ ThemeData buildTheme() {
       iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(color: s.contains(WidgetState.selected) ? C.gold2 : C.muted)),
     ),
     navigationRailTheme: const NavigationRailThemeData(backgroundColor: C.bg2, indicatorColor: Color(0x2EE8B86D), selectedIconTheme: IconThemeData(color: C.gold2), unselectedIconTheme: IconThemeData(color: C.muted), selectedLabelTextStyle: TextStyle(fontFamily: font, color: C.gold2, fontWeight: FontWeight.w700), unselectedLabelTextStyle: TextStyle(fontFamily: font, color: C.muted)),
-    snackBarTheme: const SnackBarThemeData(backgroundColor: C.surface2, contentTextStyle: TextStyle(fontFamily: font, color: C.text), behavior: SnackBarBehavior.floating),
+    snackBarTheme: SnackBarThemeData(backgroundColor: C.surface2, contentTextStyle: const TextStyle(fontFamily: font, color: C.text), behavior: SnackBarBehavior.floating, showCloseIcon: true, closeIconColor: C.muted, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rMd))),
     bottomSheetTheme: const BottomSheetThemeData(backgroundColor: C.bg2, showDragHandle: true, shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(S.rXl)))),
     dialogTheme: DialogThemeData(backgroundColor: C.bg2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rXl))),
     pageTransitionsTheme: const PageTransitionsTheme(builders: {

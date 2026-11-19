@@ -76,7 +76,10 @@ class DiscoverScreen extends ConsumerWidget {
         ])),
         IconButton.filledTonal(tooltip: 'تجديد', onPressed: st.busy ? null : () => ref.read(recsProvider.notifier).refresh(), icon: st.busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh_rounded)),
       ]))),
-      if (st.err.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(S.s4), child: Text(st.err, style: const TextStyle(color: C.danger)))),
+      if (st.err.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(S.s4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(st.err, style: const TextStyle(color: C.danger)),
+        if (st.err.contains('مفتاح')) Padding(padding: const EdgeInsets.only(top: S.s2), child: FilledButton.icon(onPressed: () => context.go('/more'), icon: const Icon(Icons.key_rounded), label: const Text('أضيفي مفتاح StashDB (من «المزيد»)'))),
+      ]))),
       if (ranked.isEmpty && !st.busy)
         SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'اقتراحات تعرف ذوقك',
           body: seeds.isEmpty ? 'اربطي بعض ممثلات مكتبتك بـ StashDB (من صفحتها ⋮ ← ربط بمصدر) ليبدأ التحليل.' : 'اضغطي «تجديد» لتحليل ${seeds.length} ممثلة مرتبطة في مكتبتك.\nكل اقتراح يأتي مع سببه، والأعمار تُتحقق قبل عرض أي صورة.',
@@ -112,7 +115,7 @@ class _RecCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (!c.adult) return const SizedBox.shrink(); // حارس إضافي: لا صورة لغير البالغة
     final pct = (40 + c.score * 58).round().clamp(40, 98);
-    return GestureDetector(onTap: () => _sheet(context, ref), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Semantics(button: true, label: c.name, child: GestureDetector(onTap: () => _sheet(context, ref), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       AspectRatio(aspectRatio: 3 / 4, child: ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: Stack(fit: StackFit.expand, children: [
         Photo(c.image, name: c.name, cacheWidth: 360),
         Positioned(top: 8, left: 8, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0xCC0A0810), borderRadius: BorderRadius.circular(99)), child: Text('$pct٪', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 12)))),
@@ -122,7 +125,7 @@ class _RecCard extends ConsumerWidget {
       Text([if (c.age != null) '${c.age} سنة', if (c.country.isNotEmpty) c.country].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12)),
       if (showAge && c.young18to21) Text('✓ موثّق: ${c.birth}', style: const TextStyle(color: C.ok, fontSize: 11)),
       if (c.reasons.isNotEmpty) Text(c.reasons.first, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold, fontSize: 11.5)),
-    ]));
+    ])));
   }
 
   void _sheet(BuildContext context, WidgetRef ref) => showModalBottomSheet(context: context, builder: (sc) => Padding(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s5), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [

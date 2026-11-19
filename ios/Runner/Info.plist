@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>لإضافة صور من معرضك إلى مكتبتك الخاصة</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>لإرسال مكتبتك إلى تطبيق المفضلة على شاشتك في نفس الشبكة</string>
 	<key>NSAppTransportSecurity</key>
