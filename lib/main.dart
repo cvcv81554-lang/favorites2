@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'ui/core/theme.dart';
+import 'ui/features/discover/discover_screen.dart';
 import 'ui/features/home/home_screen.dart';
 import 'ui/features/library/library_screen.dart';
 import 'ui/features/more/more_screen.dart';
@@ -23,7 +24,7 @@ final _router = GoRouter(
         StatefulShellBranch(routes: [GoRoute(path: '/', builder: (_, _) => const HomeScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/library', builder: (_, _) => const LibraryScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/works', builder: (_, _) => const WorksScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: '/discover', builder: (_, _) => const ComingSoon(title: 'اكتشف', body: 'الاقتراحات الذكية ومسار 18–21 الموثّق — تُنقل بعد الأعمال، بنفس بوابة العمر.'))]),
+        StatefulShellBranch(routes: [GoRoute(path: '/discover', builder: (_, _) => const DiscoverScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/studio', builder: (_, _) => const ComingSoon(title: 'الاستديو', body: 'معرض الصور الذكي والتحديث التلقائي مع الإشعارات — مرحلة لاحقة.'))]),
         StatefulShellBranch(routes: [GoRoute(path: '/more', builder: (_, _) => const MoreScreen())]),
       ],

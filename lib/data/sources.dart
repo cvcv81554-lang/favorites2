@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+
 import 'package:http/http.dart' as http;
 
 import '../domain/age_gate.dart';
@@ -71,6 +72,42 @@ class StashDB {
     }
     return out.where((w) => (w['t'] as String).isNotEmpty).toList();
   }
+}
+
+/// جمع مرشحات الاقتراحات من StashDB الرسمي:
+///  - «عملت مع»: performed_with لكل بذرة من مكتبتك (الأعلى وزنًا) مرتبة بعدد المشاهد المشتركة.
+///  - «وجوه جديدة»: الأحدث ظهورًا (DEBUT).
+///  - «من بلدانك»: الأكثر شهرة في أكثر بلدين في مكتبتك.
+/// بوابة +18 تُطبَّق عند الترتيب والعرض (rankRecs) قبل أي صورة؛ هنا تُستبعد القاصر مبكرًا أيضًا.
+Future<List<Map<String, dynamic>>> stashRecPool({required List<(String id, double w)> seeds, required List<String> countries, void Function(String)? progress}) async {
+  const fields = 'id name birth_date country gender career_start_year scene_count images{url width height}';
+  final byId = <String, Map<String, dynamic>>{};
+  void absorb(Object? list, {String? seed, String? lane}) {
+    for (final p in (list as List? ?? const [])) {
+      if (p is! Map || (p['gender'] != null && p['gender'] != 'FEMALE')) continue;
+      if (!adultOk({'birth': p['birth_date']})) continue;
+      final e = byId.putIfAbsent('${p['id']}', () => {'id': '${p['id']}', 'name': '${p['name'] ?? ''}', 'birth': '${p['birth_date'] ?? ''}', 'country': '${p['country'] ?? ''}',
+        'image': _bestImg(p['images']), 'cs': p['career_start_year'], 'sc': p['scene_count'], 'w': <String>[], 'l': <String>[]});
+      if (seed != null && !(e['w'] as List).contains(seed)) (e['w'] as List).add(seed);
+      if (lane != null && !(e['l'] as List).contains(lane)) (e['l'] as List).add(lane);
+    }
+  }
+  var i = 0;
+  for (final s in seeds) {
+    progress?.call('تحليل مكتبتك… ${++i}/${seeds.length}');
+    try {
+      final d = await StashDB.q('query(\$id:ID!){queryPerformers(input:{performed_with:\$id,gender:FEMALE,sort:SHARED_SCENE_COUNT,direction:DESC,per_page:20}){performers{$fields}}}', {'id': s.$1});
+      absorb((d['queryPerformers'] as Map?)?['performers'], seed: s.$1);
+    } on SourceError catch (e) { if (e.status == 401 || e.status == 403) rethrow; }
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+  progress?.call('وجوه جديدة…');
+  try { final d = await StashDB.q('query{queryPerformers(input:{gender:FEMALE,sort:DEBUT,direction:DESC,per_page:30}){performers{$fields}}}'); absorb((d['queryPerformers'] as Map?)?['performers'], lane: 'debut'); } on SourceError catch (_) {}
+  for (final c in countries.take(2)) {
+    progress?.call('من $c…');
+    try { final d = await StashDB.q('query(\$c:String!){queryPerformers(input:{gender:FEMALE,country:{value:\$c,modifier:EQUALS},sort:POPULARITY,direction:DESC,per_page:25}){performers{$fields}}}', {'c': c}); absorb((d['queryPerformers'] as Map?)?['performers'], lane: 'country'); } on SourceError catch (_) {}
+  }
+  return byId.values.toList();
 }
 
 // ===================== ThePornDB (REST الرسمي) =====================
