@@ -43,6 +43,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
               PopupMenuItem(value: SortBy.rating, child: Text('الأعلى تقييمًا')), PopupMenuItem(value: SortBy.name, child: Text('الاسم')),
               PopupMenuItem(value: SortBy.age, child: Text('الأصغر سنًا')), PopupMenuItem(value: SortBy.works, child: Text('الأكثر أعمالًا')),
             ]),
+          IconButton(tooltip: 'إضافة من المصادر', onPressed: () => context.push('/search'), icon: const Icon(Icons.travel_explore_rounded)),
           IconButton(tooltip: 'المفضلات فقط', onPressed: () => n.set(q.copy(favOnly: !q.favOnly)), icon: Icon(q.favOnly ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: q.favOnly ? C.rose : null)),
         ]))),
         SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(S.s4), child: SearchBar(

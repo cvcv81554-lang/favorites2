@@ -47,6 +47,7 @@ dependencies:
   collection: ^1.19.1
   intl: ^0.20.3
   flutter_svg: ^2.4.0
+  flutter_secure_storage: ^11.2.0
 
 dev_dependencies:
   flutter_test:

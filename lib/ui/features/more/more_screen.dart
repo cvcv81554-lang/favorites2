@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../data/backup.dart';
+import '../../../data/keys.dart';
+import '../../../data/sources.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -89,6 +91,10 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _tile(Icons.upload_rounded, 'تصدير نسخة احتياطية', 'نفس الصيغة — تُقرأ في التطبيقين. $n ممثلة.', _busy || n == 0 ? null : _export),
         _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
       ]),
+      _group('المصادر الرسمية', [
+        _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
+        _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
+      ]),
       _group('الخصوصية', [
         _tile(Icons.verified_user_rounded, 'بوابة +18', 'أي سجل عمره أقل من 18، أو تاريخه غير صالح، يُرفض في الحفظ والاستيراد والعرض.', null),
         _tile(Icons.phonelink_lock_rounded, 'بياناتك على جهازك', 'لا حسابات ولا خوادم. الصور تُحفظ ملفات داخل التطبيق.', null),
@@ -106,3 +112,39 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
   Widget _tile(IconData i, String t, String s, VoidCallback? onTap) => ListTile(leading: Icon(i, color: C.gold), title: Text(t), subtitle: Text(s, style: const TextStyle(color: C.muted)), onTap: onTap, enabled: onTap != null || true);
 }
 
+
+/// مفتاح API: يُكتب ويُختبر ويُحفظ في المخزن الآمن. لا يظهر كاملًا ولا يُصدَّر.
+class _KeyTile extends StatefulWidget {
+  const _KeyTile({required this.name, required this.k, required this.test});
+  final String name, k; final Future<bool> Function(String) test;
+  @override State<_KeyTile> createState() => _KeyTileState();
+}
+class _KeyTileState extends State<_KeyTile> {
+  bool _has = false;
+  @override void initState() { super.initState(); ApiKeys.has(widget.k).then((v) { if (mounted) setState(() => _has = v); }); }
+  Future<void> _edit() async {
+    final t = TextEditingController(); String err = ''; bool busy = false;
+    await showDialog(context: context, builder: (c) => StatefulBuilder(builder: (c, set) => AlertDialog(
+      title: Text('مفتاح ${widget.name}'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: t, obscureText: true, autofocus: true, decoration: InputDecoration(labelText: 'المفتاح', hintText: _has ? 'محفوظ — اكتب مفتاحًا جديدًا لاستبداله' : '')),
+        const SizedBox(height: 8),
+        const Text('يُحفظ في المخزن الآمن لجهازك فقط، ولا يدخل النسخة الاحتياطية.', style: TextStyle(color: C.muted, fontSize: 12)),
+        if (err.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(err, style: const TextStyle(color: C.danger))),
+      ]),
+      actions: [
+        if (_has) TextButton(onPressed: () async { await ApiKeys.set(widget.k, ''); if (c.mounted) Navigator.pop(c); setState(() => _has = false); }, child: const Text('حذف المفتاح', style: TextStyle(color: C.danger))),
+        TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')),
+        FilledButton(onPressed: busy ? null : () async {
+          final v = t.text.trim(); if (v.isEmpty) return;
+          set(() { busy = true; err = ''; });
+          try { await widget.test(v); await ApiKeys.set(widget.k, v); if (c.mounted) Navigator.pop(c); setState(() => _has = true);
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('مفتاح ${widget.name} يعمل ✓'))); }
+          catch (e) { set(() { busy = false; err = '$e'; }); }
+        }, child: Text(busy ? 'جارٍ الاختبار…' : 'اختبار وحفظ')),
+      ])));
+    t.dispose();
+  }
+  @override
+  Widget build(BuildContext context) => ListTile(leading: Icon(Icons.key_rounded, color: _has ? C.ok : C.gold), title: Text(widget.name), subtitle: Text(_has ? 'مفعّل ✓' : 'لم يُضف بعد', style: const TextStyle(color: C.muted)), trailing: const Icon(Icons.chevron_left_rounded), onTap: _edit);
+}

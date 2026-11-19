@@ -8,6 +8,7 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../../domain/sanitize.dart';
 import '../works/works_screen.dart';
+import '../sources/source_search.dart';
 import 'edit_sheet.dart';
 
 class PerformerScreen extends ConsumerStatefulWidget {
@@ -39,7 +40,20 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
             IconButton(tooltip: p.fav ? 'إزالة من المفضلة' : 'إلى المفضلة', onPressed: () => ref.read(libraryProvider.notifier).upsert(p.copyWith({'fav': !p.fav})),
               icon: Icon(p.fav ? Icons.favorite_rounded : Icons.favorite_border_rounded, color: p.fav ? C.rose : null)),
             IconButton(tooltip: 'تعديل', onPressed: () => showEditSheet(context, ref, p: p), icon: const Icon(Icons.edit_rounded)),
-            PopupMenuButton<String>(onSelected: (v) => v == 'del' ? _delete(p) : null, itemBuilder: (_) => const [PopupMenuItem(value: 'del', child: Text('حذف'))]),
+            PopupMenuButton<String>(onSelected: (v) async {
+              if (v == 'del') { _delete(p); return; }
+              if (v == 'link') { context.push('/search?q=${Uri.encodeQueryComponent(p.name)}&link=${p.id}'); return; }
+              if (v == 'sync') {
+                final m = ScaffoldMessenger.of(context);
+                m.showSnackBar(const SnackBar(content: Text('جارٍ التحديث من المصادر…')));
+                final r = await refreshFromSources(ref, p);
+                m.hideCurrentSnackBar(); m.showSnackBar(SnackBar(content: Text(r)));
+              }
+            }, itemBuilder: (_) => [
+              if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty) const PopupMenuItem(value: 'sync', child: Text('تحديث الأعمال من المصادر')),
+              PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
+              const PopupMenuItem(value: 'del', child: Text('حذف')),
+            ]),
           ],
           flexibleSpace: FlexibleSpaceBar(stretchModes: const [StretchMode.zoomBackground], background: Stack(fit: StackFit.expand, children: [
             Positioned.fill(child: ImageFiltered(imageFilter: ColorFilter.mode(Colors.black.withValues(alpha: .55), BlendMode.darken), child: Photo(photos[_page.clamp(0, photos.length - 1)], name: p.name))),
