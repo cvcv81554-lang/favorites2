@@ -44,6 +44,8 @@ await shoot(phone, 'phone-02-library', '/library');
 await shoot(phone, 'phone-03-detail', '/p/demo-4');
 await shoot(phone, 'phone-04-detail-scroll', '/p/demo-4', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 700); });
 await shoot(phone, 'phone-05-more', '/more');
+await shoot(phone, 'phone-06-works', '/works');
+await shoot(desk, 'desk-04-works', '/works');
 await shoot(desk, 'desk-01-home', '/');
 await shoot(desk, 'desk-02-library', '/library');
 await shoot(desk, 'desk-03-detail', '/p/demo-1');

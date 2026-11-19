@@ -34,6 +34,13 @@ class Library extends AsyncNotifier<List<Performer>> {
     return true;
   }
 
+  /// حفظ عدة سجلات دفعة واحدة (تعديل عمل مشترك بين ممثلات).
+  Future<void> upsertMany(List<Performer> ps) async {
+    final saved = _demo ? ps.where((p) => !p.isMinor).toList() : await repo.save(ps);
+    final byId = {for (final p in saved) p.id: p};
+    state = AsyncData([for (final x in items) byId[x.id] ?? x]);
+  }
+
   Future<void> remove(String id) async { if (!_demo) await repo.delete(id); state = AsyncData(items.where((x) => x.id != id).toList()); }
   Future<void> reload() async { state = AsyncData(await repo.loadAll()); }
 }

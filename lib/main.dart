@@ -8,6 +8,7 @@ import 'ui/features/home/home_screen.dart';
 import 'ui/features/library/library_screen.dart';
 import 'ui/features/more/more_screen.dart';
 import 'ui/features/performer/performer_screen.dart';
+import 'ui/features/works/works_screen.dart';
 import 'ui/shell.dart';
 
 void main() => runApp(const ProviderScope(child: FavoritesApp()));
@@ -20,7 +21,7 @@ final _router = GoRouter(
       branches: [
         StatefulShellBranch(routes: [GoRoute(path: '/', builder: (_, _) => const HomeScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/library', builder: (_, _) => const LibraryScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: '/works', builder: (_, _) => const ComingSoon(title: 'الأعمال', body: 'مركز الأعمال (للمشاهدة، القادمة، القوائم، التقييمات) — المرحلة التالية.\nأعمالك محفوظة وتظهر الآن داخل صفحة كل ممثلة.'))]),
+        StatefulShellBranch(routes: [GoRoute(path: '/works', builder: (_, _) => const WorksScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/discover', builder: (_, _) => const ComingSoon(title: 'اكتشف', body: 'الاقتراحات الذكية ومسار 18–21 الموثّق — تُنقل بعد الأعمال، بنفس بوابة العمر.'))]),
         StatefulShellBranch(routes: [GoRoute(path: '/studio', builder: (_, _) => const ComingSoon(title: 'الاستديو', body: 'معرض الصور الذكي والتحديث التلقائي مع الإشعارات — مرحلة لاحقة.'))]),
         StatefulShellBranch(routes: [GoRoute(path: '/more', builder: (_, _) => const MoreScreen())]),

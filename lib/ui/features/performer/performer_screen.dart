@@ -6,6 +6,8 @@ import '../../../domain/performer.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../../domain/sanitize.dart';
+import '../works/works_screen.dart';
 import 'edit_sheet.dart';
 
 class PerformerScreen extends ConsumerStatefulWidget {
@@ -108,14 +110,15 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
   }
 }
 
-class _WorkTile extends StatelessWidget {
+class _WorkTile extends ConsumerWidget {
   const _WorkTile({required this.w});
   final Map<String, dynamic> w;
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final seen = w['w'] == 1 || w['w'] == true, upc = isUpcoming(w);
     final sub = [if ((w['s'] ?? '').toString().isNotEmpty) w['s'], if ((w['d'] ?? w['y'] ?? '').toString().isNotEmpty) (w['d'] ?? w['y'])].join(' · ');
     return ListTile(
+      onTap: () => showWorkSheet(context, ref, wKeyOf(w)),
       contentPadding: const EdgeInsets.symmetric(horizontal: S.s4, vertical: 2),
       leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 72, height: 44, child: Photo((w['p'] ?? '').toString(), name: (w['s'] ?? w['t'] ?? '').toString(), cacheWidth: 200))),
       title: Text((w['t'] ?? '').toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
