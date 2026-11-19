@@ -9,6 +9,7 @@ import '../../core/widgets.dart';
 import '../../../domain/sanitize.dart';
 import '../works/works_screen.dart';
 import '../sources/source_search.dart';
+import '../studio/studio_screen.dart';
 import 'edit_sheet.dart';
 
 class PerformerScreen extends ConsumerStatefulWidget {
@@ -120,6 +121,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
       actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(style: FilledButton.styleFrom(backgroundColor: C.danger, foregroundColor: Colors.white), onPressed: () => Navigator.pop(c, true), child: const Text('حذف'))]));
     if (ok != true || !mounted) return;
     await ref.read(libraryProvider.notifier).remove(p.id);
+    try { await (await ref.read(studioRepoProvider.future)).removePerformer(p.id); ref.invalidate(studioProvider); } catch (_) {}   // صورها في الاستديو (المعجَبة تبقى)
     if (mounted) context.pop();
   }
 }

@@ -10,6 +10,7 @@ import 'ui/features/library/library_screen.dart';
 import 'ui/features/more/more_screen.dart';
 import 'ui/features/performer/performer_screen.dart';
 import 'ui/features/sources/source_search.dart';
+import 'ui/features/studio/studio_screen.dart';
 import 'ui/features/works/works_screen.dart';
 import 'ui/shell.dart';
 
@@ -25,7 +26,7 @@ final _router = GoRouter(
         StatefulShellBranch(routes: [GoRoute(path: '/library', builder: (_, _) => const LibraryScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/works', builder: (_, _) => const WorksScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/discover', builder: (_, _) => const DiscoverScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: '/studio', builder: (_, _) => const ComingSoon(title: 'الاستديو', body: 'معرض الصور الذكي والتحديث التلقائي مع الإشعارات — مرحلة لاحقة.'))]),
+        StatefulShellBranch(routes: [GoRoute(path: '/studio', builder: (_, _) => const StudioScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: '/more', builder: (_, _) => const MoreScreen())]),
       ],
     ),
