@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="80%">
+      <stop offset="0" stop-color="#34172F"/>
+      <stop offset="0.55" stop-color="#170C1C"/>
+      <stop offset="1" stop-color="#09070D"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6DDA6"/>
+      <stop offset="0.45" stop-color="#E8B86D"/>
+      <stop offset="1" stop-color="#E2688C"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE9C2" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#E2688C" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="232" fill="url(#bg)"/>
+  <!-- قلب بخط ذهبي متدرج -->
+  <path d="M512 806 C318 676 214 560 238 418 C258 300 398 252 512 362 C626 252 766 300 786 418 C810 560 706 676 512 806 Z"
+        fill="none" stroke="url(#gold)" stroke-width="58" stroke-linejoin="round"/>
+  <!-- ثقب المفتاح: مكتبتك الخاصة -->
+  <path d="M512 434 A58 58 0 0 1 546 539 L572 660 Q512 676 452 660 L478 539 A58 58 0 0 1 512 434 Z" fill="url(#gold)"/>
+  <!-- لمعة -->
+  <path d="M778 214 L790 252 L828 264 L790 276 L778 314 L766 276 L728 264 L766 252 Z" fill="#FBE7BE"/>
+</svg>

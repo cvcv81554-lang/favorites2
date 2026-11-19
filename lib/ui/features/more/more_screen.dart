@@ -1,0 +1,108 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
+
+import '../../../data/backup.dart';
+import '../../core/state.dart';
+import '../../core/theme.dart';
+import '../../core/widgets.dart';
+
+class MoreScreen extends ConsumerStatefulWidget {
+  const MoreScreen({super.key});
+  @override ConsumerState<MoreScreen> createState() => _MoreScreenState();
+}
+
+class _MoreScreenState extends ConsumerState<MoreScreen> {
+  bool _busy = false;
+  String _status = '';
+
+  void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+
+  Future<String?> _askPassword(String title) => showDialog<String>(context: context, builder: (c) {
+    final t = TextEditingController();
+    return AlertDialog(title: Text(title), content: TextField(controller: t, obscureText: true, autofocus: true, decoration: const InputDecoration(labelText: 'كلمة المرور')),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(c, t.text), child: const Text('متابعة'))]);
+  });
+
+  Future<void> _import() async {
+    final picked = await FilePicker.pickFile(type: FileType.any);
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    setState(() { _busy = true; _status = 'قراءة الملف…'; });
+    try {
+      var text = utf8.decode(bytes, allowMalformed: false);
+      if (Backup.isEncrypted(text)) {
+        final pw = await _askPassword('النسخة مشفّرة'); if (pw == null) return;
+        setState(() => _status = 'فك التشفير…');
+        text = await Backup.decrypt(text, pw);
+      }
+      final f = Backup.parse(text);
+      if (!mounted) return;
+      final go = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('استيراد النسخة'),
+        content: Text('${f.items.length} ممثلة في الملف.${f.minorsSkipped > 0 ? '\nستُتجاهل ${f.minorsSkipped} (أقل من 18 أو تاريخ غير صالح).' : ''}${f.invalid > 0 ? '\n${f.invalid} سجل غير صالح.' : ''}\n\nلا يُحذف شيء من مكتبتك: الجديد يُضاف، والأحدث يُحدَّث فقط.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('استيراد'))]));
+      if (go != true) return;
+      setState(() => _status = 'حفظ الصور والسجلات…');
+      final lib = ref.read(libraryProvider.notifier);
+      final res = await Backup.apply(lib.repo, f, lib.items);
+      await lib.repo.kvSet('lists', f.lists); await lib.repo.kvSet('wlists', f.wlists); await lib.repo.kvSet('prefs', f.prefs);
+      await lib.reload();
+      _snack('أُضيفت ${res.added} · حُدّثت ${res.updated}${res.photosFixed > 0 ? ' · اكتملت صور ${res.photosFixed}' : ''}');
+    } on BackupError catch (e) { _snack(e.msg); }
+    catch (e) { _snack('تعذّر الاستيراد: $e'); }
+    finally { if (mounted) setState(() { _busy = false; _status = ''; }); }
+  }
+
+  Future<void> _export({bool encrypted = false}) async {
+    String? pw;
+    if (encrypted) { pw = await _askPassword('كلمة مرور النسخة (8 أحرف فأكثر)'); if (pw == null) return; }
+    setState(() { _busy = true; _status = 'تجهيز النسخة…'; });
+    try {
+      final lib = ref.read(libraryProvider.notifier);
+      final lists = ((await lib.repo.kvGet('lists')) as List? ?? const []).cast<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      final wlists = ((await lib.repo.kvGet('wlists')) as List? ?? const []).cast<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      final prefs = ((await lib.repo.kvGet('prefs')) as Map? ?? const {}).map((k, v) => MapEntry('$k', '$v'));
+      var json = await Backup.export(lib.items, lists: lists, wlists: wlists, prefs: prefs);
+      if (pw != null) json = await Backup.encrypt(json, pw);
+      final d = DateTime.now(); final name = 'favorites-backup-${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}.${pw != null ? 'vkte' : 'json'}';
+      final path = await FilePicker.saveFile(dialogTitle: 'حفظ النسخة الاحتياطية', fileName: name, bytes: utf8.encode(json));
+      _snack(path == null && !kIsWeb ? 'أُلغي الحفظ' : 'حُفظت النسخة ($name)');
+    } on BackupError catch (e) { _snack(e.msg); }
+    catch (e) { _snack('تعذّر التصدير: $e'); }
+    finally { if (mounted) setState(() { _busy = false; _status = ''; }); }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = ref.watch(libraryProvider).value?.length ?? 0;
+    return Scaffold(body: SafeArea(child: ListView(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 140), children: [
+      Row(children: [const AppLogo(size: 52), const SizedBox(width: S.s3), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('المفضلة', style: Theme.of(context).textTheme.headlineSmall), const Text('مكتبتك الخاصة · كل شيء على جهازك', style: TextStyle(color: C.muted)),
+      ])]),
+      const SizedBox(height: S.s5),
+      if (_busy) Padding(padding: const EdgeInsets.only(bottom: S.s4), child: Column(children: [const LinearProgressIndicator(), const SizedBox(height: 6), Text(_status, style: const TextStyle(color: C.muted))])),
+      _group('النسخ الاحتياطي', [
+        _tile(Icons.download_rounded, 'استيراد نسخة احتياطية', 'من التطبيق السابق أو هذا التطبيق (JSON أو مشفّرة .vkte). لا يُحذف شيء.', _busy ? null : _import),
+        _tile(Icons.upload_rounded, 'تصدير نسخة احتياطية', 'نفس الصيغة — تُقرأ في التطبيقين. $n ممثلة.', _busy || n == 0 ? null : _export),
+        _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
+      ]),
+      _group('الخصوصية', [
+        _tile(Icons.verified_user_rounded, 'بوابة +18', 'أي سجل عمره أقل من 18، أو تاريخه غير صالح، يُرفض في الحفظ والاستيراد والعرض.', null),
+        _tile(Icons.phonelink_lock_rounded, 'بياناتك على جهازك', 'لا حسابات ولا خوادم. الصور تُحفظ ملفات داخل التطبيق.', null),
+      ]),
+      _group('عن الإصدار', [
+        _tile(Icons.auto_awesome_rounded, 'المفضلة 2 · Flutter', 'إعادة بناء كاملة. أقسام الأعمال واكتشف والاستديو والإشعارات تُنقل تباعًا.', null),
+      ]),
+    ])));
+  }
+
+  Widget _group(String t, List<Widget> c) => Padding(padding: const EdgeInsets.only(bottom: S.s5), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Padding(padding: const EdgeInsets.only(bottom: S.s2, right: S.s1), child: Text(t, style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700))),
+    Card(child: Column(children: c)),
+  ]));
+  Widget _tile(IconData i, String t, String s, VoidCallback? onTap) => ListTile(leading: Icon(i, color: C.gold), title: Text(t), subtitle: Text(s, style: const TextStyle(color: C.muted)), onTap: onTap, enabled: onTap != null || true);
+}
+
