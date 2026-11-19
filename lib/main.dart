@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'data/background.dart';
 import 'ui/core/theme.dart';
 import 'ui/features/discover/discover_screen.dart';
 import 'ui/features/home/home_screen.dart';
@@ -14,7 +15,11 @@ import 'ui/features/studio/studio_screen.dart';
 import 'ui/features/works/works_screen.dart';
 import 'ui/shell.dart';
 
-void main() => runApp(const ProviderScope(child: FavoritesApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try { await initBackground(); } catch (_) {}   // لا يمنع فتح التطبيق إن تعذّر
+  runApp(const ProviderScope(child: FavoritesApp()));
+}
 
 final _router = GoRouter(
   initialLocation: '/',

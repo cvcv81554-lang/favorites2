@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../data/background.dart';
 import '../../../data/backup.dart';
 import '../../../data/keys.dart';
 import '../../../data/sources.dart';
@@ -91,6 +92,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _tile(Icons.upload_rounded, 'تصدير نسخة احتياطية', 'نفس الصيغة — تُقرأ في التطبيقين. $n ممثلة.', _busy || n == 0 ? null : _export),
         _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
       ]),
+      _group('الإشعارات والتحديث في الخلفية', [const _BgSection()]),
       _group('المصادر الرسمية', [
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
@@ -147,4 +149,51 @@ class _KeyTileState extends State<_KeyTile> {
   }
   @override
   Widget build(BuildContext context) => ListTile(leading: Icon(Icons.key_rounded, color: _has ? C.ok : C.gold), title: Text(widget.name), subtitle: Text(_has ? 'مفعّل ✓' : 'لم يُضف بعد', style: const TextStyle(color: C.muted)), trailing: const Icon(Icons.chevron_left_rounded), onTap: _edit);
+}
+
+/// إعدادات التحديث في الخلفية والإشعارات — مع حدود كل منصة بصراحة.
+class _BgSection extends ConsumerStatefulWidget {
+  const _BgSection();
+  @override ConsumerState<_BgSection> createState() => _BgSectionState();
+}
+class _BgSectionState extends ConsumerState<_BgSection> {
+  BgSettings _s = const BgSettings(); Map? _last; bool _busy = false;
+  @override void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final repo = await ref.read(repoProvider.future);
+    final s = BgSettings.fromJson(await repo.kvGet('bg') as Map?); final l = await repo.kvGet('bg_last') as Map?;
+    if (mounted) setState(() { _s = s; _last = l; });
+  }
+  Future<void> _set(BgSettings s) async {
+    if (s.on && !_s.on) { final ok = await requestNotifPermission(); if (!ok && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الإشعارات غير مسموحة — سيعمل التحديث بلا تنبيه'))); }
+    final repo = await ref.read(repoProvider.future); await repo.kvSet('bg', s.toJson());
+    try { await applyBackground(s); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّرت الجدولة: $e'))); }
+    setState(() => _s = s);
+  }
+  Future<void> _now() async {
+    setState(() => _busy = true);
+    try {
+      final r = await runCheck(s: _s.copy(works: _s.works, photos: _s.photos), notify: false);
+      await ref.read(libraryProvider.notifier).reload();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.any ? 'وُجد ${r.works} عمل و${r.photos} صورة جديدة' : (r.errors.isEmpty ? 'لا جديد الآن' : r.errors.join(' · ')))));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
+    finally { if (mounted) setState(() => _busy = false); _load(); }
+  }
+  @override
+  Widget build(BuildContext context) {
+    final last = _last?['at'] as num?;
+    return Column(children: [
+      SwitchListTile(value: _s.on, onChanged: kIsWeb ? null : (v) => _set(_s.copy(on: v)), secondary: const Icon(Icons.notifications_active_rounded, color: C.gold),
+        title: const Text('تحديث تلقائي وإشعارات'), subtitle: Text(kIsWeb ? 'متاح في تطبيق الجوال' : 'أعمال وصور جديدة لممثلات مكتبتك، والتطبيق مغلق', style: const TextStyle(color: C.muted))),
+      if (_s.on) ...[
+        CheckboxListTile(value: _s.works, onChanged: (v) => _set(_s.copy(works: v)), title: const Text('أعمال جديدة (StashDB)'), dense: true),
+        CheckboxListTile(value: _s.photos, onChanged: (v) => _set(_s.copy(photos: v)), title: const Text('صور جديدة للاستديو'), dense: true),
+        CheckboxListTile(value: _s.wifiOnly, onChanged: (v) => _set(_s.copy(wifiOnly: v)), title: const Text('على Wi-Fi فقط'), dense: true),
+      ],
+      ListTile(leading: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync_rounded, color: C.gold), title: const Text('افحص الآن'),
+        subtitle: Text(last == null ? 'لم يُفحص بعد' : 'آخر فحص: ${DateTime.fromMillisecondsSinceEpoch(last.toInt()).toString().substring(0, 16)} · ${_last?['works'] ?? 0} عمل · ${_last?['photos'] ?? 0} صورة', style: const TextStyle(color: C.muted)),
+        onTap: _busy ? null : _now),
+      const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('الإشعار عام بلا أسماء ولا صور. أندرويد: كل ~12 ساعة عند توفر الشروط. آيفون: النظام يقرر التوقيت حسب استخدامك والبطارية، ولا يعمل إن أغلقتِ التطبيق قسرًا من قائمة التطبيقات.', style: TextStyle(color: C.muted, fontSize: 12, height: 1.5))),
+    ]);
+  }
 }
