@@ -30,6 +30,10 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - name: Web build (PC — runs in Edge/Chrome)
+        run: flutter build web --release --no-web-resources-cdn && cd build/web && zip -qr ../../Favorites2-web.zip .
+      - uses: actions/upload-artifact@v4
+        with: { name: web, path: Favorites2-web.zip, if-no-files-found: error }
 
   android:
     needs: test
@@ -75,7 +79,7 @@ jobs:
         with: { name: ipa, path: dist/Favorites2.ipa, if-no-files-found: error }
 
   release:
-    needs: [android, ios]
+    needs: [test, android, ios]
     permissions:
       contents: write
     if: ${{ !cancelled() && (needs.android.result == 'success' || needs.ios.result == 'success') }}
