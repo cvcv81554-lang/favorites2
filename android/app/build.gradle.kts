@@ -29,11 +29,20 @@ android {
         versionName = flutter.versionName
     }
 
+    // توقيع ثابت كي تُثبَّت التحديثات فوق النسخة السابقة. المفتاح خارج git:
+    // محليًا signing/release.keystore + signing/keystore.pass، وفي CI متغيرات البيئة KEYSTORE_FILE / KEYSTORE_PASS (أسرار GitHub).
+    val ksFile = System.getenv("KEYSTORE_FILE")?.let { file(it) } ?: rootProject.file("../signing/release.keystore")
+    val ksPass = System.getenv("KEYSTORE_PASS") ?: rootProject.file("../signing/keystore.pass").takeIf { it.exists() }?.readText()?.trim()
+    signingConfigs {
+        create("release") {
+            if (ksFile.exists() && ksPass != null) {
+                storeFile = ksFile; storePassword = ksPass; keyAlias = "favorites2"; keyPassword = ksPass
+            }
+        }
+    }
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (ksFile.exists() && ksPass != null) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
 }

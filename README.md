@@ -1,17 +1,10 @@
-# favorites2
+# Favorites 2
 
-Favorites — private personal library
+A private, on-device personal library app (Flutter — Android, Android TV, iPhone, web/desktop).
+All user data stays on the device. This repository contains code only — no user data, images or API keys.
 
-## Getting Started
+Downloads (built by CI on every push to `main`):
+- Android / Android TV: `releases/download/latest/Favorites2.apk`
+- iPhone (unsigned, install with AltStore / Sideloadly): `releases/download/latest/Favorites2.ipa`
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Development: `flutter analyze && flutter test`. See `docs/ROADMAP.md`.

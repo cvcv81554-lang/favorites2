@@ -1,0 +1,90 @@
+name: Build
+# يختبر ثم يبني APK (أندرويد + Android TV) و IPA غير موقَّع (آيفون — يُثبَّت بـ AltStore/Sideloadly) وينشرهما في Release ثابت «latest».
+# روابط ثابتة:
+#   https://github.com/<OWNER>/<REPO>/releases/download/latest/Favorites2.apk
+#   https://github.com/<OWNER>/<REPO>/releases/download/latest/Favorites2.ipa
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.50.0
+  BUILD_NAME: 2.0.${{ github.run_number }}
+  BUILD_NUMBER: ${{ github.run_number }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - name: Signing key (from repository secrets)
+        env: { KEYSTORE_B64: '${{ secrets.KEYSTORE_B64 }}' }
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::Secret KEYSTORE_B64 missing"; exit 1; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - name: Build APK
+        env: { KEYSTORE_PASS: '${{ secrets.KEYSTORE_PASS }}' }
+        run: flutter build apk --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+      - run: mkdir -p dist && cp build/app/outputs/flutter-apk/app-release.apk dist/Favorites2.apk && rm -f "$RUNNER_TEMP/release.keystore"
+      - uses: actions/upload-artifact@v4
+        with: { name: apk, path: dist/Favorites2.apk, if-no-files-found: error }
+
+  ios:
+    needs: test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - name: Build (no code signing)
+        run: flutter build ios --release --no-codesign --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+      - name: Package Runner.app as .ipa
+        run: |
+          mkdir -p Payload dist
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry dist/Favorites2.ipa Payload
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with: { name: ipa, path: dist/Favorites2.ipa, if-no-files-found: error }
+
+  release:
+    needs: [android, ios]
+    if: ${{ !cancelled() && (needs.android.result == 'success' || needs.ios.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Publish to the fixed "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -la dist
+          NOTES="Build $BUILD_NAME · commit ${GITHUB_SHA::7} · APK: ${{ needs.android.result }} · IPA: ${{ needs.ios.result }}"
+          gh release view latest >/dev/null 2>&1 || gh release create latest --target "$GITHUB_SHA" --title "Favorites 2" --notes "$NOTES"
+          gh release upload latest dist/* --clobber
+          gh release edit latest --title "Favorites 2 · $BUILD_NAME" --notes "$NOTES" --latest

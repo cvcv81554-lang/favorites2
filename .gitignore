@@ -49,3 +49,9 @@ app.*.map.json
 
 # مخرجات الاختبار المحلية
 /test/out/
+
+# مفتاح التوقيع (لا يُرفع أبدًا)
+/signing/
+*.keystore
+*.jks
+key.properties
