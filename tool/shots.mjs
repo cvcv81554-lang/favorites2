@@ -50,6 +50,8 @@ await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.m
 await shoot(desk, 'desk-05-discover', '/discover');
 await shoot(phone, 'phone-09-studio', '/studio');
 await shoot(phone, 'phone-10-stats', '/stats');
+await shoot(phone, 'phone-11-tools', '/tools');
+await shoot(phone, 'phone-12-sync', '/sync');
 await shoot(desk, 'desk-06-studio', '/studio');
 await shoot(desk, 'desk-04-works', '/works');
 await shoot(desk, 'desk-01-home', '/');

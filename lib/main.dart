@@ -15,6 +15,7 @@ import 'ui/features/sources/source_search.dart';
 import 'ui/features/stats/stats_screen.dart';
 import 'ui/features/studio/studio_screen.dart';
 import 'ui/features/sync/sync_screen.dart';
+import 'ui/features/tools/tools_screen.dart';
 import 'ui/features/works/works_screen.dart';
 import 'ui/shell.dart';
 
@@ -40,6 +41,7 @@ final _router = GoRouter(
     ),
     GoRoute(path: '/p/:id', builder: (_, s) => PerformerScreen(id: s.pathParameters['id']!)),
     GoRoute(path: '/sync', builder: (_, _) => const SyncScreen()),
+    GoRoute(path: '/tools', builder: (_, _) => const ToolsScreen()),
     GoRoute(path: '/stats', builder: (_, _) => const StatsScreen()),
     GoRoute(path: '/search', builder: (_, s) => SourceSearchScreen(initial: s.uri.queryParameters['q'] ?? '', linkTo: s.uri.queryParameters['link'])),
   ],

@@ -10,6 +10,7 @@ import '../../../domain/sanitize.dart';
 import '../works/works_screen.dart';
 import '../sources/source_search.dart';
 import '../studio/studio_screen.dart';
+import '../tools/tools_screen.dart';
 import 'edit_sheet.dart';
 
 class PerformerScreen extends ConsumerStatefulWidget {
@@ -43,6 +44,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
             IconButton(tooltip: 'تعديل', onPressed: () => showEditSheet(context, ref, p: p), icon: const Icon(Icons.edit_rounded)),
             PopupMenuButton<String>(onSelected: (v) async {
               if (v == 'del') { _delete(p); return; }
+              if (v == 'lists') { showListsSheet(context, ref, p); return; }
               if (v == 'link') { context.push('/search?q=${Uri.encodeQueryComponent(p.name)}&link=${p.id}'); return; }
               if (v == 'sync') {
                 final m = ScaffoldMessenger.of(context);
@@ -52,6 +54,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               }
             }, itemBuilder: (_) => [
               if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty) const PopupMenuItem(value: 'sync', child: Text('تحديث الأعمال من المصادر')),
+              const PopupMenuItem(value: 'lists', child: Text('القوائم')),
               PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
               const PopupMenuItem(value: 'del', child: Text('حذف')),
             ]),
