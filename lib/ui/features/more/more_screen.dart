@@ -12,6 +12,7 @@ import '../../../data/sources.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../privacy/lock_gate.dart';
 
 class MoreScreen extends ConsumerStatefulWidget {
   const MoreScreen({super.key});
@@ -98,6 +99,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
       ]),
       _group('الخصوصية', [
+        const PrivacySection(),
         _tile(Icons.verified_user_rounded, 'بوابة +18', 'أي سجل عمره أقل من 18، أو تاريخه غير صالح، يُرفض في الحفظ والاستيراد والعرض.', null),
         _tile(Icons.phonelink_lock_rounded, 'بياناتك على جهازك', 'لا حسابات ولا خوادم. الصور تُحفظ ملفات داخل التطبيق.', null),
       ]),
@@ -148,7 +150,7 @@ class _KeyTileState extends State<_KeyTile> {
     t.dispose();
   }
   @override
-  Widget build(BuildContext context) => ListTile(leading: Icon(Icons.key_rounded, color: _has ? C.ok : C.gold), title: Text(widget.name), subtitle: Text(_has ? 'مفعّل ✓' : 'لم يُضف بعد', style: const TextStyle(color: C.muted)), trailing: const Icon(Icons.chevron_left_rounded), onTap: _edit);
+  Widget build(BuildContext context) => ListTile(leading: Icon(Icons.key_rounded, color: _has ? C.ok : C.gold), title: Text(widget.name), subtitle: Text(_has ? 'مفعّل ✓' : 'لم يُضف بعد', style: const TextStyle(color: C.muted)), trailing: const Icon(Icons.chevron_right_rounded), onTap: _edit);
 }
 
 /// إعدادات التحديث في الخلفية والإشعارات — مع حدود كل منصة بصراحة.

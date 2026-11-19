@@ -10,6 +10,7 @@ import 'ui/features/home/home_screen.dart';
 import 'ui/features/library/library_screen.dart';
 import 'ui/features/more/more_screen.dart';
 import 'ui/features/performer/performer_screen.dart';
+import 'ui/features/privacy/lock_gate.dart';
 import 'ui/features/sources/source_search.dart';
 import 'ui/features/studio/studio_screen.dart';
 import 'ui/features/works/works_screen.dart';
@@ -52,6 +53,7 @@ class FavoritesApp extends StatelessWidget {
     locale: const Locale('ar'),
     supportedLocales: const [Locale('ar'), Locale('en')],
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
+    builder: (c, child) => LockGate(child: child!),
     routerConfig: _router,
     shortcuts: {...WidgetsApp.defaultShortcuts, const SingleActivator(LogicalKeyboardKey.select): const ActivateIntent()},
   );

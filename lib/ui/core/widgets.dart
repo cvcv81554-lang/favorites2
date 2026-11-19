@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../data/platform/db_factory.dart';
+import '../../data/privacy.dart';
 import '../../domain/performer.dart';
 import 'theme.dart';
 
@@ -20,7 +22,12 @@ class Photo extends StatelessWidget {
   final String src; final BoxFit fit; final String name; final int? cacheWidth; final Alignment alignment;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(valueListenable: blurPhotos, builder: (c, blur, _) {
+    final w = _build(c);
+    return blur ? ClipRect(child: ImageFiltered(imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: w)) : w;
+  });
+
+  Widget _build(BuildContext context) {
     Widget fallback() => Initials(name);
     if (src.isEmpty) return fallback();
     Widget img;
