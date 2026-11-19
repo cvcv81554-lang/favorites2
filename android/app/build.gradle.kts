@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.favlib.favorites2"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37   // flutter_local_notifications و androidx.core 1.19 تتطلبان 37 (لا يغيّر الأجهزة المدعومة)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
