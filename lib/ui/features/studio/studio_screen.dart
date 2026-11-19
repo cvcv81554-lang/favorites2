@@ -33,11 +33,11 @@ class Studio extends AsyncNotifier<StudioState> {
     if (s.busy) return;
     final r = await ref.read(studioRepoProvider.future);
     final lib = ref.read(libraryProvider).value ?? const <Performer>[];
-    final net = await ApiKeys.has(ApiKeys.stash);
+    final net = await ApiKeys.has(ApiKeys.stash), tp = await ApiKeys.has(ApiKeys.tpdb);
     state = AsyncData(s.copy(busy: true, err: '', msg: 'بدء الاكتشاف…'));
     try {
-      final n = await r.discover(lib, network: net, progress: (m) => state = AsyncData(s.copy(msg: m)));
-      state = AsyncData(s.copy(imgs: await r.all(), last: DateTime.now().millisecondsSinceEpoch, busy: false, msg: '', err: net ? '' : 'أضيفت صور المشاهد فقط — أضف مفتاح StashDB لصور الممثلات.'));
+      final n = await r.discover(lib, network: net, tpdb: tp, progress: (m) => state = AsyncData(s.copy(msg: m)));
+      state = AsyncData(s.copy(imgs: await r.all(), last: DateTime.now().millisecondsSinceEpoch, busy: false, msg: '', err: net || tp ? '' : 'أضيفت صور المشاهد فقط — أضيفي مفتاح StashDB أو ThePornDB لصور الممثلات.'));
       if (n == 0 && s.err.isEmpty) state = AsyncData(s.copy(err: 'لا صور جديدة الآن.'));
     } catch (e) { state = AsyncData(s.copy(busy: false, msg: '', err: '$e')); }
   }

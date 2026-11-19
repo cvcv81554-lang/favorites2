@@ -39,3 +39,17 @@ class WishN extends AsyncNotifier<List<Map<String, dynamic>>> {
   Future<void> remove(String n) => _save([for (final e in state.value ?? const <Map<String, dynamic>>[]) if (e['n'] != n) e]);
 }
 final wishProvider = AsyncNotifierProvider<WishN, List<Map<String, dynamic>>>(WishN.new);
+
+/// قوائم الأعمال (wlists).
+class WListsN extends AsyncNotifier<List<NamedList>> {
+  @override
+  Future<List<NamedList>> build() async {
+    final repo = await ref.watch(repoProvider.future);
+    return [for (final e in (await repo.kvGet('wlists') as List? ?? const [])) if (e is Map) NamedList('${e['id']}', '${e['name']}')];
+  }
+  Future<NamedList> add(String name) async {
+    final x = NamedList(const Uuid().v4(), name.trim()); final l = [...?state.value, x];
+    await (await ref.read(repoProvider.future)).kvSet('wlists', [for (final e in l) e.toJson()]); state = AsyncData(l); return x;
+  }
+}
+final wlistsProvider = AsyncNotifierProvider<WListsN, List<NamedList>>(WListsN.new);

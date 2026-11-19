@@ -24,6 +24,11 @@ void main() {
     expect((await r.all()).map((x) => x.id).toSet(), {'2', '3'});
   });
 
+  test('صور ThePornDB: posters ثم image، https فقط وبلا تكرار', () {
+    final u = tpdbPerformerImages({'data': {'posters': [{'url': 'https://cdn.test/1.jpg'}, {'url': 'http://insecure/2.jpg'}, {'url': 'https://cdn.test/1.jpg'}], 'image': 'https://cdn.test/3.jpg', 'face': 'javascript:x'}});
+    expect(u, ['https://cdn.test/1.jpg', 'https://cdn.test/3.jpg']);
+  });
+
   test('مقاس StashDB الرسمي للشبكات فقط', () {
     expect(StudioImg.sized('https://stashdb.org/images/ab/cd', 600), 'https://stashdb.org/images/ab/cd?size=600');
     expect(StudioImg.sized('https://cdn.example.com/images/a', 600), 'https://cdn.example.com/images/a');

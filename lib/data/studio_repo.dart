@@ -49,7 +49,7 @@ class StudioRepo {
   ///  - صور الممثلة من StashDB (findPerformer.images) للمرتبطات.
   ///  - صور مشاهدها الموجودة أصلًا في أعمالها (بلا طلب شبكة).
   /// لا يعيد إضافة صورة موجودة (المعرّف = بصمة الرابط).
-  Future<int> discover(List<Performer> lib, {void Function(String)? progress, bool network = true}) async {
+  Future<int> discover(List<Performer> lib, {void Function(String)? progress, bool network = true, bool tpdb = false}) async {
     final have = {for (final x in await all()) x.id};
     final now = DateTime.now().millisecondsSinceEpoch; final add = <StudioImg>[];
     void push(String pid, String url, String src, String kind, int w, int h) {
@@ -72,8 +72,30 @@ class StudioRepo {
         await Future<void>.delayed(const Duration(milliseconds: 200));
       }
     }
+    // ThePornDB الرسمي: صور الممثلة (posters) لمن لها معرّف — البالغات فقط
+    if (tpdb) {
+      final linked = adults.where((p) => p.pdbId.isNotEmpty).toList();
+      var i = 0;
+      for (final p in linked) {
+        progress?.call('ThePornDB: ${p.name} (${++i}/${linked.length})');
+        try {
+          final d = await TPDB.get('/performers/${Uri.encodeComponent(p.pdbId)}');
+          for (final u in tpdbPerformerImages(d)) { push(p.id, u, 'tpdb', 'portrait', 0, 0); }
+        } on SourceError catch (e) { if (e.status == 401 || e.status == 403) rethrow; }
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+    }
     if (add.isNotEmpty) await put(add);
     await kvSet('last', now);
     return add.length;
   }
+}
+
+/// صور ممثلة من رد ThePornDB (/performers/{id}): posters[].url ثم image/thumbnail — روابط https فقط.
+List<String> tpdbPerformerImages(Map<String, dynamic> d) {
+  final p = (d['data'] is Map ? d['data'] : d) as Map;
+  final out = <String>[];
+  for (final x in (p['posters'] as List? ?? const [])) { final u = x is Map ? '${x['url'] ?? x['large'] ?? ''}' : '$x'; if (safeHttps(u) && !out.contains(u)) out.add(u); }
+  for (final k in ['image', 'face', 'thumbnail']) { final u = '${p[k] ?? ''}'; if (safeHttps(u) && !out.contains(u)) out.add(u); }
+  return out.take(30).toList();
 }

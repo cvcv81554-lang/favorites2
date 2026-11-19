@@ -66,7 +66,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
       final pr = Map<String, dynamic>.from(await lib.repo.kvGet('prefs') as Map? ?? const {});
       f.prefs.forEach((k, v) => pr.putIfAbsent(k, () => v));
       await lib.repo.kvSet('prefs', pr);
-      ref.invalidate(listsProvider); ref.invalidate(wishProvider);
+      ref.invalidate(listsProvider); ref.invalidate(wlistsProvider); ref.invalidate(wishProvider);
       await lib.reload();
       _snack('أُضيفت ${res.added} · حُدّثت ${res.updated}${res.photosFixed > 0 ? ' · اكتملت صور ${res.photosFixed}' : ''}');
     } on BackupError catch (e) { _snack(e.msg); }

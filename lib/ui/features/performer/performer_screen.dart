@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../domain/performer.dart';
+import '../../../domain/profile.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -96,6 +98,11 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
           const SizedBox(height: S.s4),
           _facts(p),
           if (p.tags.isNotEmpty) ...[const SizedBox(height: S.s4), Wrap(spacing: S.s2, runSpacing: S.s2, children: [for (final t in p.tags) _chip('#$t')])],
+          if (criteriaOf(p).isNotEmpty) ...[const SizedBox(height: S.s4), _bars('التقييم التفصيلي', crit, criteriaOf(p))],
+          if (bodyOf(p).isNotEmpty) ...[const SizedBox(height: S.s3), _bars('تفاصيل الجسم', bodyD, bodyOf(p))],
+          if (accountsOf(p).isNotEmpty) ...[const SizedBox(height: S.s4), Wrap(spacing: S.s2, runSpacing: S.s2, children: [for (final a in accountsOf(p)) ActionChip(
+            avatar: const Icon(Icons.link_rounded, size: 18, color: C.gold), label: Text('${plat[a['p']]?.$1 ?? a['p']} · ${a['v']!.length > 24 ? '${a['v']!.substring(0, 24)}…' : a['v']}'),
+            onPressed: () async { final u = accUrl(a); if (u == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('رابط غير صالح'))); return; } await launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication); })])],
           if (p.notes.isNotEmpty) ...[const SizedBox(height: S.s4), Container(width: double.infinity, padding: const EdgeInsets.all(S.s4), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)), child: Text(p.notes, style: const TextStyle(height: 1.7)))],
         ]))),
         SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدتِ ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
@@ -119,6 +126,16 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
       child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(x.$1, size: 18, color: C.gold), const SizedBox(width: 8), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(x.$2, style: const TextStyle(color: C.muted, fontSize: 11)), Text(x.$3, style: const TextStyle(fontWeight: FontWeight.w600))])]),
     )]);
   }
+
+  Widget _bars(String title, Map<String, String> keys, Map<String, double> v) => Container(padding: const EdgeInsets.all(S.s3), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700)), const SizedBox(height: S.s2),
+      for (final e in keys.entries) if (v[e.key] != null) Padding(padding: const EdgeInsets.symmetric(vertical: 3), child: Row(children: [
+        SizedBox(width: 110, child: Text(e.value, style: const TextStyle(color: C.muted))),
+        Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(99), child: LinearProgressIndicator(value: v[e.key]! / 5, minHeight: 8, backgroundColor: C.surface2, color: C.gold))),
+        SizedBox(width: 36, child: Text(v[e.key]!.toStringAsFixed(1), textAlign: TextAlign.end)),
+      ])),
+    ]));
 
   Widget _chip(String t, {bool gold = false}) => Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
     decoration: BoxDecoration(color: gold ? C.gold.withValues(alpha: .16) : C.surface, borderRadius: BorderRadius.circular(99), border: Border.all(color: gold ? C.gold.withValues(alpha: .5) : C.line2)),

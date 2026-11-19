@@ -2,19 +2,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../domain/performer.dart';
 import '../../../domain/sanitize.dart';
 import '../../../domain/works.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../tools/lists_state.dart';
+import '../tools/tools_screen.dart' show askName;
 
 final worksProvider = Provider<List<WorkGroup>>((ref) => groupWorks(ref.watch(libraryProvider).value ?? const []));
 
 enum WTab { recent, watch, upcoming, seen, top, diary }
 
-class _WState { final WTab tab; final String q; const _WState(this.tab, this.q); }
+class _WState { final WTab tab; final String q; final String wl; const _WState(this.tab, this.q, [this.wl = '']); }
 class _WN extends Notifier<_WState> { @override _WState build() => const _WState(WTab.recent, ''); void set(_WState s) => state = s; }
 final _wProvider = NotifierProvider<_WN, _WState>(_WN.new);
+
+/// تحديد متعدد للأعمال (ضغط مطوّل) لإجراء جماعي.
+class _SelN extends Notifier<Set<String>> { @override Set<String> build() => {}; void toggle(String k) => state = state.contains(k) ? ({...state}..remove(k)) : {...state, k}; void clear() => state = {}; }
+final _selProvider = NotifierProvider<_SelN, Set<String>>(_SelN.new);
 
 /// مركز الأعمال: الأحدث، للمشاهدة، القادمة، شاهدتها، الأعلى تقييمًا، يوميات المشاهدة.
 class WorksScreen extends ConsumerWidget {
@@ -30,6 +37,7 @@ class WorksScreen extends ConsumerWidget {
     final t0 = todayStr();
     final q = norm(st.q);
     Iterable<WorkGroup> l = all;
+    if (st.wl.isNotEmpty) l = l.where((g) => g.ls.contains(st.wl));
     if (q.isNotEmpty) l = l.where((g) => norm('${g.t} ${g.s} ${g.who.map((p) => p.name).join(' ')}').contains(q));
     final list = switch (st.tab) {
       WTab.recent => (l.where((g) => !g.isUpcoming && g.date.isNotEmpty && g.date.compareTo(t0) <= 0).toList()..sort((a, b) => b.date.compareTo(a.date))),
@@ -42,17 +50,38 @@ class WorksScreen extends ConsumerWidget {
     final seen = all.where((g) => g.seen).length;
     final w = MediaQuery.sizeOf(context).width;
     final cols = w >= 1300 ? 4 : w >= 900 ? 3 : w >= 600 ? 2 : 1;
-    return Scaffold(body: SafeArea(bottom: false, child: CustomScrollView(slivers: [
+    final sel = ref.watch(_selProvider);
+    Future<void> bulk(void Function(Map<String, dynamic>) fn, String msg) async {
+      final groups = all.where((g) => sel.contains(g.key)).toList();
+      final byP = <String, (Performer, Set<int>)>{};
+      for (final g in groups) { for (final r in g.refs) { (byP[r.p.id] ??= (r.p, <int>{})).$2.add(r.idx); } }
+      await ref.read(libraryProvider.notifier).upsertMany([for (final e in byP.values) e.$1.copyWith({'works': [for (var k = 0; k < e.$1.works.length; k++) () { final w = Map<String, dynamic>.from(e.$1.works[k]); if (e.$2.contains(k)) fn(w); return w; }()]})]);
+      ref.read(_selProvider.notifier).clear();
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$msg (${groups.length})')));
+    }
+    return Scaffold(
+      bottomNavigationBar: sel.isEmpty ? null : SafeArea(child: Container(margin: const EdgeInsets.fromLTRB(S.s3, 0, S.s3, 76), padding: const EdgeInsets.all(S.s2),
+        decoration: BoxDecoration(color: C.surface2, borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: C.line2)),
+        child: Row(children: [
+          IconButton(tooltip: 'إلغاء التحديد', onPressed: () => ref.read(_selProvider.notifier).clear(), icon: const Icon(Icons.close_rounded)),
+          Text('${sel.length} محدد'), const Spacer(),
+          IconButton(tooltip: 'شاهدتها', onPressed: () => bulk((w) { w['w'] = 1; w['wd'] = todayStr(); w.remove('q'); }, 'عُلّمت مشاهدة'), icon: const Icon(Icons.check_circle_rounded, color: C.ok)),
+          IconButton(tooltip: 'للمشاهدة', onPressed: () => bulk((w) { w['q'] = 1; }, 'أُضيفت لقائمة المشاهدة'), icon: const Icon(Icons.bookmark_add_rounded, color: C.gold)),
+          IconButton(tooltip: 'إلغاء المشاهدة', onPressed: () => bulk((w) { w.remove('w'); w.remove('wd'); }, 'أُلغيت المشاهدة'), icon: const Icon(Icons.remove_done_rounded)),
+        ]))),
+      body: SafeArea(bottom: false, child: CustomScrollView(slivers: [
       SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('الأعمال', style: Theme.of(context).textTheme.headlineSmall),
+        if (sel.isEmpty) const Text('اضغطي مطوّلًا على عمل لتحديد عدة أعمال', style: TextStyle(color: C.muted, fontSize: 12)),
         Text('${all.length} عمل · شاهدتِ ${all.isEmpty ? 0 : (seen * 100 / all.length).round()}٪ · ${all.where((g) => g.q && !g.seen).length} للمشاهدة · ${all.where((g) => g.isUpcoming).length} قادم', style: const TextStyle(color: C.muted)),
       ]))),
       SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(S.s4), child: SearchBar(
-        hintText: 'ابحث بالعنوان أو الاستوديو أو الممثلة…', leading: const Icon(Icons.search_rounded), onChanged: (v) => n.set(_WState(st.tab, v)),
+        hintText: 'ابحث بالعنوان أو الاستوديو أو الممثلة…', leading: const Icon(Icons.search_rounded), onChanged: (v) => n.set(_WState(st.tab, v, st.wl)),
         backgroundColor: const WidgetStatePropertyAll(C.surface), elevation: const WidgetStatePropertyAll(0), side: const WidgetStatePropertyAll(BorderSide(color: C.line2)),
       ))),
       SliverToBoxAdapter(child: SizedBox(height: 44, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: S.s4), children: [
-        for (final e in tabs.entries) Padding(padding: const EdgeInsetsDirectional.only(end: S.s2), child: ChoiceChip(label: Text(e.value), selected: st.tab == e.key, showCheckmark: false, onSelected: (_) => n.set(_WState(e.key, st.q)))),
+        for (final e in tabs.entries) Padding(padding: const EdgeInsetsDirectional.only(end: S.s2), child: ChoiceChip(label: Text(e.value), selected: st.tab == e.key, showCheckmark: false, onSelected: (_) => n.set(_WState(e.key, st.q, st.wl)))),
+        for (final wl in ref.watch(wlistsProvider).value ?? const <NamedList>[]) Padding(padding: const EdgeInsetsDirectional.only(end: S.s2), child: FilterChip(avatar: const Icon(Icons.playlist_play_rounded, size: 18), label: Text(wl.name), selected: st.wl == wl.id, showCheckmark: false, onSelected: (v) => n.set(_WState(st.tab, st.q, v ? wl.id : '')))),
       ]))),
       if (list.isEmpty)
         SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: switch (st.tab) { WTab.watch => 'قائمة المشاهدة فارغة', WTab.upcoming => 'لا إصدارات قادمة', WTab.diary => 'لا يوميات بعد', _ => 'لا أعمال هنا' },
@@ -83,8 +112,10 @@ class WorkCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final du = g.daysUntil;
-    return Material(color: C.surface, borderRadius: BorderRadius.circular(S.rLg), clipBehavior: Clip.antiAlias, child: InkWell(
-      onTap: () => showWorkSheet(context, ref, g.key),
+    final sel = ref.watch(_selProvider); final on = sel.contains(g.key);
+    return Material(color: on ? C.gold.withValues(alpha: .18) : C.surface, borderRadius: BorderRadius.circular(S.rLg), clipBehavior: Clip.antiAlias, child: InkWell(
+      onTap: () => sel.isNotEmpty ? ref.read(_selProvider.notifier).toggle(g.key) : showWorkSheet(context, ref, g.key),
+      onLongPress: () => ref.read(_selProvider.notifier).toggle(g.key),
       child: Row(children: [
         SizedBox(width: 150, height: double.infinity, child: Stack(fit: StackFit.expand, children: [
           Photo(g.p, name: g.s.isNotEmpty ? g.s : g.t, cacheWidth: 400),
@@ -94,7 +125,8 @@ class WorkCard extends ConsumerWidget {
         Expanded(child: Padding(padding: const EdgeInsets.all(S.s3), child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
           Text(g.t, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 2),
-          Text([g.who.map((p) => p.name).take(2).join('، '), if (g.s.isNotEmpty) g.s, if (g.date.isNotEmpty) g.date.substring(0, g.d.isNotEmpty ? 10 : 4)].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 12.5)),
+          Text([if (g.s.isNotEmpty) g.s, if (g.date.isNotEmpty) g.date.substring(0, g.d.isNotEmpty ? 10 : 4)].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 12.5)),
+          Text(g.who.map((p) => p.name).take(2).join('، ') + (g.who.length > 2 ? ' +${g.who.length - 2}' : ''), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold, fontSize: 12)),
           const Spacer(),
           Row(children: [if (g.r > 0) Stars(g.r.toDouble(), size: 13), const Spacer(), if (g.q && !g.seen) const Icon(Icons.bookmark_rounded, color: C.gold, size: 18)]),
         ]))),
@@ -164,6 +196,16 @@ class _WorkSheetState extends ConsumerState<_WorkSheet> {
         onSubmitted: (v) => _apply(g, (w) { if (v.trim().isEmpty) { w.remove('n'); } else { w['n'] = v.trim(); } })),
       Align(alignment: AlignmentDirectional.centerEnd, child: TextButton(onPressed: () { _apply(g, (w) { final v = _note.text.trim(); if (v.isEmpty) { w.remove('n'); } else { w['n'] = v; } }); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('حُفظت الملاحظة'))); }, child: const Text('حفظ الملاحظة'))),
       const SizedBox(height: S.s2),
+      const Text('قوائم الأعمال', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700)),
+      Wrap(spacing: S.s2, children: [
+        for (final wl in ref.watch(wlistsProvider).value ?? const <NamedList>[]) FilterChip(label: Text(wl.name), selected: g.ls.contains(wl.id), onSelected: (v) => _apply(g, (w) { final ls = {...((w['ls'] as List?) ?? const []).cast<String>()}; if (v) { ls.add(wl.id); } else { ls.remove(wl.id); } if (ls.isEmpty) { w.remove('ls'); } else { w['ls'] = ls.toList(); } })),
+        ActionChip(avatar: const Icon(Icons.add_rounded, size: 18), label: const Text('قائمة جديدة'), onPressed: () async {
+          final name = await askName(context, 'قائمة أعمال جديدة'); if (name == null || name.trim().isEmpty) return;
+          final wl = await ref.read(wlistsProvider.notifier).add(name);
+          await _apply(g, (w) { final ls = {...((w['ls'] as List?) ?? const []).cast<String>(), wl.id}; w['ls'] = ls.toList(); });
+        }),
+      ]),
+      const SizedBox(height: S.s3),
       const Text('الممثلات', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700)),
       const SizedBox(height: S.s2),
       Wrap(spacing: S.s2, runSpacing: S.s2, children: [for (final p in g.who) ActionChip(
