@@ -10,7 +10,7 @@ import '../../core/theme.dart';
 /// إضافة/تعديل ممثلة. بوابة +18 قبل الحفظ: تاريخ يقول أقل من 18 أو غير مفهوم ⇒ رفض.
 Future<void> showEditSheet(BuildContext context, WidgetRef ref, {Performer? p}) => showModalBottomSheet(
   context: context, isScrollControlled: true, useSafeArea: true,
-  builder: (_) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom), child: _EditForm(p: p)),
+  builder: (sc) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sc).bottom), child: _EditForm(p: p)),
 );
 
 class _EditForm extends ConsumerStatefulWidget {

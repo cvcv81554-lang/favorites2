@@ -21,3 +21,9 @@ Object? photoFile(String ref) => null;
 ImageProvider? fileImageProvider(String ref) => null;
 Future<void> deletePhoto(String ref) async {}
 String b64(Uint8List b) => base64Encode(b);
+
+// لا مهام خلفية على الويب.
+Future<void> bgWrite(String name, String text) async {}
+Future<String?> bgRead(String name) async => null;
+Future<List<String>> bgList(String prefix) async => const [];
+Future<void> bgRemove(String name) async {}

@@ -44,3 +44,11 @@ ImageProvider? fileImageProvider(String ref) { final f = photoFile(ref); return 
 Future<void> deletePhoto(String ref) async { final f = photoFile(ref); if (f != null && await f.exists()) await f.delete(); }
 
 String b64(Uint8List b) => base64Encode(b);
+
+// ---------- ملفات تبادل مهمة الخلفية (لا تلمس قاعدة البيانات من عزلة أخرى) ----------
+Future<Directory> _bgDir() async { final d = Directory('${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}bg'); if (!await d.exists()) await d.create(recursive: true); return d; }
+/// كتابة ذرّية: ملف مؤقت ثم إعادة تسمية.
+Future<void> bgWrite(String name, String text) async { final d = await _bgDir(); final t = File('${d.path}${Platform.pathSeparator}$name.tmp'); await t.writeAsString(text, flush: true); await t.rename('${d.path}${Platform.pathSeparator}$name'); }
+Future<String?> bgRead(String name) async { final f = File('${(await _bgDir()).path}${Platform.pathSeparator}$name'); return await f.exists() ? f.readAsString() : null; }
+Future<List<String>> bgList(String prefix) async => [for (final e in (await _bgDir()).listSync()) if (e is File && e.uri.pathSegments.last.startsWith(prefix) && !e.path.endsWith('.tmp')) e.uri.pathSegments.last];
+Future<void> bgRemove(String name) async { final f = File('${(await _bgDir()).path}${Platform.pathSeparator}$name'); if (await f.exists()) await f.delete(); }

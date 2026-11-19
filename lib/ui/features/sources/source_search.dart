@@ -60,7 +60,10 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
         final m = mergeWorks(works, sc); works = m.list; added = m.added;
       } catch (_) {}
       final base = existing?.raw ?? {'id': id, 'added': DateTime.now().millisecondsSinceEpoch, 'tags': [], 'lists': [], 'source': c.source == 'stash' ? 'StashDB' : 'ThePornDB'};
-      final p = Performer({...base, 'name': existing?.name ?? c.name, if ((existing?.aliases ?? '').isEmpty && c.aliases.isNotEmpty) 'aliases': c.aliases,
+      // السجل الحالي بعد انتهاء الجلب (قد تكونين عدّلتِه أثناءه) — لا يُستبدل بلقطة قديمة
+      final now0 = existing == null ? null : lib.items.where((x) => x.id == existing.id).firstOrNull;
+      if (now0 != null) { works = mergeWorks(now0.works, works).list; for (final ph in now0.photos) { if (!photos.contains(ph)) photos.insert(0, ph); } }
+      final p = Performer({...(now0?.raw ?? base), 'name': now0?.name ?? existing?.name ?? c.name, if ((existing?.aliases ?? '').isEmpty && c.aliases.isNotEmpty) 'aliases': c.aliases,
         if ((existing?.birth ?? '').isEmpty && c.birth.isNotEmpty) 'birth': c.birth, if ((existing?.country ?? '').isEmpty && c.country.isNotEmpty) 'country': c.country,
         if (c.height != null) 'height': c.height, if (c.careerStart != null) 'cs': c.careerStart,
         c.source == 'stash' ? 'stashId' : 'pdbId': c.id, 'photos': photos, 'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch, 'updated': DateTime.now().millisecondsSinceEpoch});
@@ -117,6 +120,7 @@ Future<String> refreshFromSources(WidgetRef ref, Performer p) async {
   var works = p.works; var added = 0; final errs = <String>[];
   if (p.stashId.isNotEmpty) { try { final m = mergeWorks(works, await StashDB.scenes(p.stashId)); works = m.list; added += m.added; } catch (e) { errs.add('$e'); } }
   if (p.pdbId.isNotEmpty) { try { final m = mergeWorks(works, await TPDB.scenes(p.pdbId)); works = m.list; added += m.added; } catch (e) { errs.add('$e'); } }
-  await ref.read(libraryProvider.notifier).upsert(p.copyWith({'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch}));
+  final cur = ref.read(libraryProvider.notifier).items.where((x) => x.id == p.id).firstOrNull ?? p;   // السجل الحالي لا اللقطة القديمة
+  await ref.read(libraryProvider.notifier).upsert(cur.copyWith({'works': mergeWorks(cur.works, works).list, 'worksAt': DateTime.now().millisecondsSinceEpoch}));
   return errs.isEmpty ? (added > 0 ? 'أُضيف $added عمل جديد' : 'لا أعمال جديدة') : '${added > 0 ? 'أُضيف $added عمل · ' : ''}${errs.join(' · ')}';
 }

@@ -72,6 +72,10 @@ List<Map<String, dynamic>> safeWorks(Object? v) {
     for (final k in ['ip', 'is']) { if (w[k] != null && !RegExp(r'^[A-Za-z0-9-]{1,64}$').hasMatch('${w[k]}')) w.remove(k); }
     if (w['im'] != null && !RegExp(r'^tt\d{5,10}$').hasMatch('${w['im']}')) w.remove('im');
     if (w['tm'] != null && !RegExp(r'^\d{1,10}$').hasMatch('${w['tm']}')) w.remove('tm');
+    // التواريخ: d بصيغة YYYY-MM-DD (عبر ydOf) مع y، و wd يُقبل فقط بالصيغة الكاملة
+    if (w['d'] != null) { final yd = ydOf(w['d']); w.remove('d'); if (yd['d'] != null) { w['d'] = yd['d']; } if (yd['y'] != null && (w['y'] ?? '').toString().isEmpty) w['y'] = yd['y']; }
+    if (w['y'] != null && !RegExp(r'^\d{4}$').hasMatch('${w['y']}')) w.remove('y');
+    if (w['wd'] != null && !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch('${w['wd']}')) w.remove('wd');
     if (w['tg'] is List) { w['tg'] = (w['tg'] as List).whereType<String>().toSet().take(10).toList(); } else { w.remove('tg'); }
     if (w['ls'] is List) { w['ls'] = (w['ls'] as List).whereType<String>().toList(); } else { w.remove('ls'); }
     out.add(w);

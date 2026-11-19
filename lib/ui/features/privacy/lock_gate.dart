@@ -24,6 +24,9 @@ class PrivacyN extends AsyncNotifier<PrivacySettings> {
 final privacyProvider = AsyncNotifierProvider<PrivacyN, PrivacySettings>(PrivacyN.new);
 
 /// بوابة القفل: تقفل عند الفتح، وعند العودة بعد مدة الغياب المختارة، وتغطي المحتوى عند مغادرة التطبيق.
+/// أثناء نافذة البصمة/الوجه.
+bool bioInFlight = false;
+
 class LockGate extends ConsumerStatefulWidget {
   const LockGate({super.key, required this.child});
   final Widget child;
@@ -38,9 +41,12 @@ class _LockGateState extends ConsumerState<LockGate> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState st) {
     final s = ref.read(privacyProvider).value; if (s == null) return;
-    if (st == AppLifecycleState.inactive || st == AppLifecycleState.hidden || st == AppLifecycleState.paused) {
+    if (bioInFlight) return;   // نافذة البصمة/الوجه نفسها تجعل التطبيق inactive — لا تُحتسب غيابًا
+    if (st == AppLifecycleState.inactive) {
+      if (s.secure || s.lock) setState(() => _cover = true);   // غطاء فقط (قائمة التطبيقات، مربعات النظام)
+    } else if (st == AppLifecycleState.hidden || st == AppLifecycleState.paused) {
       _away ??= DateTime.now();
-      if (s.secure || s.lock) setState(() => _cover = true);   // غطاء قبل لقطة قائمة التطبيقات
+      if (s.secure || s.lock) setState(() => _cover = true);
     } else if (st == AppLifecycleState.resumed) {
       final gone = _away == null ? Duration.zero : DateTime.now().difference(_away!);
       _away = null;
@@ -55,8 +61,11 @@ class _LockGateState extends ConsumerState<LockGate> with WidgetsBindingObserver
       loading: () => const Scaffold(body: Center(child: AppLogo(size: 84))),
       error: (_, _) => widget.child,
       data: (p) { if (!p.lock) _locked = false;   // تفعيل القفل من الإعدادات لا يقفل فورًا؛ يبدأ من الغياب التالي
+        final hide = (p.lock && _locked) || _cover;
+        if (hide) WidgetsBinding.instance.addPostFrameCallback((_) => FocusManager.instance.primaryFocus?.unfocus());
         return Stack(children: [
-        widget.child,
+        // المحتوى تحت القفل: لا تركيز (ريموت/لوحة مفاتيح)، لا قارئ شاشة، ولا حركة
+        ExcludeFocus(excluding: hide, child: ExcludeSemantics(excluding: hide, child: TickerMode(enabled: !hide, child: widget.child))),
         if (p.lock && _locked) Positioned.fill(child: _LockScreen(bio: p.bio, onOk: () => setState(() => _locked = false))),
         if (_cover && !(p.lock && _locked)) const Positioned.fill(child: ColoredBox(color: C.bg, child: Center(child: AppLogo(size: 96)))),
       ]); },
@@ -72,7 +81,7 @@ class _LockScreen extends StatefulWidget {
 class _LockScreenState extends State<_LockScreen> {
   String _pin = ''; String _err = ''; int _fails = 0, _len = 4; DateTime? _until;
   @override void initState() { super.initState(); Privacy.pinLength().then((l) { if (mounted) setState(() => _len = l); }); if (widget.bio && !kIsWeb) WidgetsBinding.instance.addPostFrameCallback((_) => _bio()); }
-  Future<void> _bio() async { if (await Privacy.bioUnlock()) widget.onOk(); }
+  Future<void> _bio() async { bioInFlight = true; try { if (await Privacy.bioUnlock()) widget.onOk(); } finally { Future<void>.delayed(const Duration(milliseconds: 800), () => bioInFlight = false); } }
   Future<void> _tap(String d) async {
     if (_until != null && DateTime.now().isBefore(_until!)) return;
     setState(() { _pin += d; _err = ''; });
@@ -96,7 +105,7 @@ class _LockScreenState extends State<_LockScreen> {
       SizedBox(width: 84, height: 72, child: IconButton(onPressed: () => setState(() => _pin = _pin.isEmpty ? '' : _pin.substring(0, _pin.length - 1)), icon: const Icon(Icons.backspace_outlined))),
     ]),
   ])))));
-  Widget _key(String d) => Padding(padding: const EdgeInsets.all(6), child: SizedBox(width: 72, height: 60, child: OutlinedButton(onPressed: () => _tap(d), child: Text(d, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600)))));
+  Widget _key(String d) => Padding(padding: const EdgeInsets.all(6), child: SizedBox(width: 72, height: 60, child: OutlinedButton(autofocus: d == '1', onPressed: () => _tap(d), child: Text(d, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600)))));
 }
 
 /// إعدادات الخصوصية (في «المزيد»).

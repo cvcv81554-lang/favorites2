@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'data/background.dart';
+import 'ui/core/bg_coordinator.dart';
 import 'ui/core/theme.dart';
 import 'ui/features/discover/discover_screen.dart';
 import 'ui/features/home/home_screen.dart';
@@ -61,7 +62,7 @@ class FavoritesApp extends ConsumerWidget {
     localizationsDelegates: GlobalMaterialLocalizations.delegates,
     builder: (c, child) {
       final tv = ref.watch(isTvProvider).value ?? false;   // شاشة 10 أقدام: نص أكبر
-      final w = LockGate(child: child!);
+      final w = LockGate(child: BgCoordinator(child: child!));
       return tv ? MediaQuery(data: MediaQuery.of(c).copyWith(textScaler: const TextScaler.linear(1.25)), child: w) : w;
     },
     routerConfig: _router,

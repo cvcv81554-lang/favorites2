@@ -3,7 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// مفاتيح API في المخزن الآمن للنظام (Keychain على iOS، Keystore على أندرويد) — أكثر أمانًا من التطبيق السابق.
 /// لا تدخل النسخة الاحتياطية ولا المستودع أبدًا، والمستخدم يكتبها بنفسه.
 class ApiKeys {
-  static const _s = FlutterSecureStorage();
+  static const _s = FlutterSecureStorage(iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device));
   static const tpdb = 'tpdb_key', stash = 'stash_key';
   static final Map<String, String> _cache = {};
 

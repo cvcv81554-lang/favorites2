@@ -12,6 +12,11 @@ import workmanager_apple
     WorkmanagerPlugin.setPluginRegistrantCallback { registry in GeneratedPluginRegistrant.register(with: registry) }
     WorkmanagerPlugin.registerPeriodicTask(withIdentifier: "com.favlib.favorites2.check", earliestBeginInSeconds: NSNumber(value: 6 * 60 * 60))
     UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
+    // بيانات المستخدم تبقى على جهازه: مجلد التطبيق (القاعدة والصور) خارج نسخ iCloud
+    if var dir = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {
+      var v = URLResourceValues(); v.isExcludedFromBackup = true
+      try? dir.setResourceValues(v)
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

@@ -14,6 +14,9 @@ import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../privacy/lock_gate.dart';
+import '../tools/lists_state.dart';
+import '../studio/studio_screen.dart';
+import '../../core/bg_coordinator.dart';
 
 class MoreScreen extends ConsumerStatefulWidget {
   const MoreScreen({super.key});
@@ -53,7 +56,16 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
       setState(() => _status = 'حفظ الصور والسجلات…');
       final lib = ref.read(libraryProvider.notifier);
       final res = await Backup.apply(lib.repo, f, lib.items);
-      await lib.repo.kvSet('lists', f.lists); await lib.repo.kvSet('wlists', f.wlists); await lib.repo.kvSet('prefs', f.prefs);
+      // دمج لا استبدال (كالتطبيق السابق): القوائم بالمعرّف، والتفضيلات فقط للمفاتيح غير الموجودة
+      for (final k in ['lists', 'wlists']) {
+        final cur = [for (final e in (await lib.repo.kvGet(k) as List? ?? const [])) if (e is Map) Map<String, dynamic>.from(e)];
+        final ids = {for (final e in cur) e['id']};
+        await lib.repo.kvSet(k, [...cur, for (final e in (k == 'lists' ? f.lists : f.wlists)) if (!ids.contains(e['id'])) e]);
+      }
+      final pr = Map<String, dynamic>.from(await lib.repo.kvGet('prefs') as Map? ?? const {});
+      f.prefs.forEach((k, v) => pr.putIfAbsent(k, () => v));
+      await lib.repo.kvSet('prefs', pr);
+      ref.invalidate(listsProvider); ref.invalidate(wishProvider);
       await lib.reload();
       _snack('أُضيفت ${res.added} · حُدّثت ${res.updated}${res.photosFixed > 0 ? ' · اكتملت صور ${res.photosFixed}' : ''}');
     } on BackupError catch (e) { _snack(e.msg); }
@@ -167,21 +179,24 @@ class _BgSectionState extends ConsumerState<_BgSection> {
   @override void initState() { super.initState(); _load(); }
   Future<void> _load() async {
     final repo = await ref.read(repoProvider.future);
-    final s = BgSettings.fromJson(await repo.kvGet('bg') as Map?); final l = await repo.kvGet('bg_last') as Map?;
-    if (mounted) setState(() { _s = s; _last = l; });
+    final s = BgSettings.fromJson(await repo.kvGet('bg') as Map?); final l = await repo.kvGet('bg_last') as Map?; final b = await lastBgState();
+    final lastAt = [(l?['at'] as num?) ?? 0, (b?['at'] as num?) ?? 0].reduce((x, y) => x > y ? x : y);
+    if (mounted) setState(() { _s = s; _last = lastAt == 0 ? null : {...?l, 'at': lastAt}; });
   }
   Future<void> _set(BgSettings s) async {
     if (s.on && !_s.on) { final ok = await requestNotifPermission(); if (!ok && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الإشعارات غير مسموحة — سيعمل التحديث بلا تنبيه'))); }
     final repo = await ref.read(repoProvider.future); await repo.kvSet('bg', s.toJson());
-    try { await applyBackground(s); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّرت الجدولة: $e'))); }
+    try { await writeInput(ref, lib: ref.read(libraryProvider.notifier).items); await applyBackground(s); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّرت الجدولة: $e'))); }
     setState(() => _s = s);
   }
   Future<void> _now() async {
     setState(() => _busy = true);
     try {
-      final r = await runCheck(s: _s.copy(works: _s.works, photos: _s.photos), notify: false);
-      await ref.read(libraryProvider.notifier).reload();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.any ? 'وُجد ${r.works} عمل و${r.photos} صورة جديدة' : (r.errors.isEmpty ? 'لا جديد الآن' : r.errors.join(' · ')))));
+      final lib = ref.read(libraryProvider.notifier).items;
+      final ids = {for (final x in await (await ref.read(studioRepoProvider.future)).all()) x.id};
+      final f = await fetchUpdates(buildBgInput(_s.copy(works: true, photos: true), lib, ids), limit: 40);
+      final r = await applyFetch(ref, [f]);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.works > 0 || r.photos > 0 ? 'وُجد ${r.works} عمل و${r.photos} صورة جديدة' : (f.errors.isEmpty ? 'لا جديد الآن' : f.errors.join(' · ')))));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
     finally { if (mounted) setState(() => _busy = false); _load(); }
   }
