@@ -80,7 +80,7 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
         if (_err.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(horizontal: S.s4), child: Text(_err, style: const TextStyle(color: C.danger))),
         if (_hidden > 0) Padding(padding: const EdgeInsets.all(S.s2), child: Text('أُخفيت $_hidden نتيجة: عمر أقل من 18 أو تاريخ ميلاد غير صالح.', style: const TextStyle(color: C.muted, fontSize: 12))),
         Expanded(child: _res.isEmpty && !_busy
-          ? const EmptyState(title: 'ابحثي في المصدرين معًا', body: 'StashDB وThePornDB معًا: تُجمع المعلومات والأعمال والصور من الاثنين وتُحذف المكررات، وتُحفظ الصور على جهازك.')
+          ? const EmptyState(title: 'ابحث في المصدرين معًا', body: 'StashDB وThePornDB معًا: تُجمع المعلومات والأعمال والصور من الاثنين وتُحذف المكررات، وتُحفظ الصور على جهازك.')
           : ListView.separated(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, 120), itemCount: _res.length, separatorBuilder: (_, _) => const SizedBox(height: S.s2), itemBuilder: (c, i) {
               final r = _res[i]; final a = sdAge(r.birth).age;
               final tw = _twin['${r.source}:${r.id}'];
@@ -107,7 +107,7 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
 /// تحديث ممثلة من المصدرين معًا (معلومات + أعمال + صور، بلا تكرار). بوابة +18 قبل أي طلب صور/أعمال.
 Future<String> refreshFromSources(WidgetRef ref, Performer p, {void Function(String)? progress}) async {
   if (p.isMinor) return 'مرفوض: العمر أقل من 18';
-  if (p.stashId.isEmpty && p.pdbId.isEmpty) return 'غير مرتبطة بمصدر — استخدمي «ربط بمصدر»';
+  if (p.stashId.isEmpty && p.pdbId.isEmpty && !RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(p.birth)) return 'غير مرتبطة بمصدر — استخدم «ربط بمصدر»';
   return (await syncFromSources(ref, existing: p, progress: progress)).$2;
 }
 
@@ -120,7 +120,8 @@ Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {String? l
 /// 2) يجلب من الاثنين: المعلومات ⇒ بوابة +18 ⇒ الأعمال والصور.
 /// 3) يدمج بلا تكرار: الأعمال (بالمعرّف ثم العنوان/الاستوديو/التاريخ)، والصور (بالرابط والبايتات والبصمة المرئية — الأوضح يبقى)،
 ///    والمعلومات تملأ الناقص فقط — لا تُستبدل بياناتك ولا تُحذف تقييماتك أو مشاهداتك أو ملاحظاتك.
-Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing, Candidate? c, String? linkTo, List<String> extraImages = const [], void Function(String)? progress}) async {
+/// [deep]: البحث عن كل سجلاتها بكل أسمائها (يُتخطى في التحديث الجماعي إن بُحث خلال آخر 30 يومًا).
+Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing, Candidate? c, String? linkTo, List<String> extraImages = const [], void Function(String)? progress, bool deep = true}) async {
   if (c != null && !c.adult) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
   final lib = ref.read(libraryProvider.notifier);
   Performer? base = existing ?? (linkTo != null ? lib.items.where((p) => p.id == linkTo).firstOrNull : null);
@@ -130,19 +131,27 @@ Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing
   base ??= match() ?? (c == null ? null : lib.items.where((p) => norm(p.name) == norm(c.name) && (p.birth.isEmpty || c.birth.isEmpty || p.birth.startsWith(c.birth.length >= 10 ? c.birth.substring(0, 10) : c.birth))).firstOrNull);
   if (base != null) { if (sid.isEmpty) sid = base.stashId; if (pid.isEmpty) pid = base.pdbId; }
   if (base != null && base.isMinor) return (null, 'مرفوض: العمر أقل من 18');
-  // المصدر الآخر
-  if (sid.isEmpty || pid.isEmpty) {
-    progress?.call('البحث عنها في ${sid.isEmpty ? 'StashDB' : 'ThePornDB'}…');
-    final probe = c ?? Candidate(source: sid.isNotEmpty ? 'stash' : 'tpdb', id: sid.isNotEmpty ? sid : pid, name: base?.name ?? '', aliases: base?.aliases ?? '', birth: base?.birth ?? '', country: base?.country ?? '');
-    final cp = probe.name.isEmpty ? null : await findCounterpart(probe);
-    if (cp != null) { if (cp.source == 'stash') { if (sid.isEmpty) sid = cp.id; } else { if (pid.isEmpty) pid = cp.id; } }
-    base ??= match();
+  // كل سجلاتها في المصدرين (بالاسم وكل أسمائها الأخرى)
+  var sIds = <String>{if (sid.isNotEmpty) sid, ...?base?.stashIds}, tIds = <String>{if (pid.isNotEmpty) pid, ...?base?.pdbIds};
+  final recent = DateTime.now().millisecondsSinceEpoch - ((base?.raw['linkedAt'] as num?) ?? 0) < 30 * 86400000;
+  if (deep || !recent || sIds.isEmpty || tIds.isEmpty) {
+    final noId = sid.isEmpty && pid.isEmpty;
+    final probe = c ?? Candidate(source: sid.isNotEmpty ? 'stash' : pid.isNotEmpty ? 'tpdb' : 'name', id: sid.isNotEmpty ? sid : pid, name: base?.name ?? '', aliases: base?.aliases ?? '', birth: base?.birth ?? '', country: base?.country ?? '');
+    // ممثلة بلا أي معرّف: الربط بالاسم وحده خطر الخلط ⇒ لا بد من تاريخ ميلاد كامل مطابق
+    if (probe.name.isNotEmpty && (!noId || RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(probe.birth))) {
+      final all = await findAllRecords(probe, progress: progress);
+      bool ok(Candidate x) => !noId || x.birth.startsWith(probe.birth.substring(0, 10));
+      sIds.addAll(all.stash.where(ok).map((x) => x.id)); tIds.addAll(all.tpdb.where(ok).map((x) => x.id));
+    }
   }
-  if (sid.isEmpty && pid.isEmpty) return (null, 'غير مرتبطة بمصدر');
-  progress?.call('جلب المعلومات والأعمال والصور من المصدرين…');
-  final d = await fetchBoth(stashId: sid, pdbId: pid);
+  if (sid.isEmpty && sIds.isNotEmpty) sid = sIds.first;
+  if (pid.isEmpty && tIds.isNotEmpty) pid = tIds.first;
+  base ??= match();
+  if (sid.isEmpty && pid.isEmpty) return (null, base != null && base.birth.length < 10 ? 'غير مرتبطة بمصدر — استخدم «ربط بمصدر» (أو أضف تاريخ ميلادها الكامل للربط التلقائي)' : 'لم تُعثر عليها في StashDB ولا ThePornDB');
+  progress?.call('جلب كل المعلومات والأعمال والصور من ${sIds.length + tIds.length} سجل…');
+  final d = await fetchBoth(stashId: sid, pdbId: pid, moreStash: sIds.toList(), morePdb: tIds.toList());
   if (d.minor) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
-  if (d.sources.isEmpty) return (null, d.errors.isEmpty ? 'أضيفي مفتاح StashDB أو ThePornDB من «المزيد»' : d.errors.join(' · '));
+  if (d.sources.isEmpty) return (null, d.errors.isEmpty ? 'أضف مفتاح StashDB أو ThePornDB من «المزيد»' : d.errors.join(' · '));
   final id = base?.id ?? const Uuid().v4();
   // الصور: إزالة المكرر الموجود ثم إضافة الجديد بلا تكرار
   progress?.call('الصور (بلا تكرار)…');
@@ -171,6 +180,8 @@ Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing
     if (cur?.raw['height'] == null && (d.info['height'] ?? c?.height) != null) 'height': d.info['height'] ?? c?.height,
     if (cur?.raw['cs'] == null && (d.info['cs'] ?? c?.careerStart) != null) 'cs': d.info['cs'] ?? c?.careerStart,
     if (sid.isNotEmpty) 'stashId': sid, if (pid.isNotEmpty) 'pdbId': pid,
+    if (d.stashIds.length > 1) 'stashIds': d.stashIds, if (d.pdbIds.length > 1) 'pdbIds': d.pdbIds,
+    'linkedAt': DateTime.now().millisecondsSinceEpoch,
     'photos': photos, 'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch, 'updated': DateTime.now().millisecondsSinceEpoch,
   });
   if (p.isMinor) return (null, 'رُفضت: العمر أقل من 18');
@@ -179,7 +190,7 @@ Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing
   final dups = w0.removed + removedP.length + dupP;
   return (p, [
     '${cur == null ? 'أُضيفت' : 'حُدّثت'} ${p.name}',
-    d.sources.join(' + '),
+    '${d.sources.join(' + ')} (${d.stashIds.length + d.pdbIds.length} سجل)',
     '${m.added} عمل جديد',
     if (addedP > 0) '$addedP صورة',
     if (dups > 0) 'حُذف $dups مكرر',

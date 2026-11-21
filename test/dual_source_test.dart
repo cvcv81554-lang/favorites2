@@ -7,6 +7,7 @@ import 'package:favorites2/data/photo_hash.dart';
 import 'package:favorites2/data/sources.dart';
 import 'package:favorites2/domain/performer.dart';
 import 'package:favorites2/domain/works.dart';
+import 'package:favorites2/ui/core/user_font.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -104,5 +105,61 @@ void main() {
       expect(hamming(a, b) <= dupThreshold, isTrue);
       expect(hamming(a, c) > dupThreshold, isTrue);
     });
+  });
+
+  test('انقطاع الاتصال (Connection reset by peer) ⇒ إعادة محاولة تلقائية تنجح', () async {
+    var n = 0;
+    sourceClient = MockClient((r) async {
+      n++;
+      if (n == 1) throw http.ClientException('Connection reset by peer');
+      return http.Response(jsonEncode({'data': [{'id': '7', 'name': 'Elsa', 'extras': {'gender': 'Female', 'birthday': '1990-02-02'}}]}), 200);
+    });
+    final l = await TPDB.search('Elsa');
+    expect(n, 2); expect(l.single.name, 'Elsa');
+  });
+
+  test('انقطاع دائم ⇒ رسالة عربية واضحة (لا نص الخطأ الخام)', () async {
+    sourceClient = MockClient((r) async => throw http.ClientException('Connection reset by peer'));
+    await expectLater(TPDB.search('Elsa'), throwsA(isA<SourceError>().having((e) => e.msg, 'msg', contains('تعذّر الاتصال بـ ThePornDB'))));
+  });
+
+  test('سجلاتها بأسمائها الأخرى: اسم مميّز من أسمائها ⇒ نفس الشخص؛ اسم قصير شائع بلا تاريخ ⇒ لا', () {
+    const me = Candidate(source: 'stash', id: '1', name: 'Jane Sample', aliases: 'Janie Smith, Jade', birth: '1995-04-04');
+    expect(samePerson(me, const Candidate(source: 'tpdb', id: '2', name: 'Janie Smith')), isTrue);
+    expect(samePerson(me, const Candidate(source: 'tpdb', id: '3', name: 'Jade')), isFalse);
+    expect(samePerson(me, const Candidate(source: 'tpdb', id: '4', name: 'Janie Smith', birth: '1999-01-01')), isFalse);
+  });
+
+  test('بيانات ThePornDB تُترجم لحقول StashDB بلا تخمين', () {
+    final m = tpdbAsStash({'id': 'T', 'name': 'X', 'extras': {'gender': 'Female', 'birthday': '1994-01-01', 'ethnicity': 'Caucasian', 'hair_colour': 'Brunette', 'eye_colour': 'Blue', 'height': '168cm', 'cupsize': '34C', 'fake_boobs': false, 'tattoos': 'None', 'birthplace_code': 'CZ'}});
+    expect(m['ethnicity'], 'CAUCASIAN'); expect(m['hair_color'], 'BRUNETTE'); expect(m['eye_color'], 'BLUE');
+    expect(m['height'], 168); expect(m['cup_size'], 'C'); expect(m['band_size'], 34); expect(m['breast_type'], 'NATURAL');
+    expect(m['tattoos'], isEmpty); expect(m['country'], 'CZ'); expect(m.containsKey('piercings'), isFalse);
+  });
+
+  test('الجلب من عدة سجلات (اسمان في ThePornDB) ⇒ كل الأعمال مدمجة بلا تكرار', () async {
+    sourceClient = MockClient((r) async {
+      if (r.url.host == 'stashdb.org') {
+        final q = '${jsonDecode(r.body)['query']}';
+        if (q.contains('findPerformer')) return http.Response(jsonEncode({'data': {'findPerformer': {'id': 'S', 'name': 'Jane', 'birth_date': '1995-04-04', 'images': []}}}), 200);
+        return http.Response(jsonEncode({'data': {'queryScenes': {'count': 1, 'scenes': [{'id': 'SC', 'title': 'Shared', 'release_date': '2024-02-02', 'studio': {'name': 'St'}, 'images': []}]}}}), 200);
+      }
+      final id = r.url.pathSegments[1];
+      if (r.url.path.endsWith('/scenes')) {
+        return http.Response(jsonEncode({'data': id == 'T1' ? [{'id': 'A', 'title': 'Shared', 'date': '2024-02-02', 'site': {'name': 'St'}}] : [{'id': 'B', 'title': 'Under Other Name', 'date': '2021-01-01', 'site': {'name': 'Z'}}], 'meta': {'last_page': 1}}), 200);
+      }
+      return http.Response(jsonEncode({'data': {'id': id, 'name': id == 'T1' ? 'Jane' : 'Janie Smith', 'extras': {'birthday': '1995-04-04'}}}), 200);
+    });
+    final d = await fetchBoth(stashId: 'S', pdbId: 'T1', morePdb: ['T2']);
+    expect(d.pdbIds.toSet(), {'T1', 'T2'});
+    expect(d.works.length, 2);
+    expect(d.works.any((w) => w['t'] == 'Under Other Name'), isTrue);
+    expect('${d.info['aliases']}', contains('Janie Smith'));
+  });
+
+  test('ملف الخط: يُقبل OTF/TTF فقط', () {
+    expect(isFontFile(Uint8List.fromList([0x4F, 0x54, 0x54, 0x4F, ...List.filled(20, 0)])), isTrue);
+    expect(isFontFile(Uint8List.fromList([0x00, 0x01, 0x00, 0x00, ...List.filled(20, 0)])), isTrue);
+    expect(isFontFile(Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, ...List.filled(20, 0)])), isFalse);
   });
 }

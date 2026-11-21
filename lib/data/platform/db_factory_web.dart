@@ -27,3 +27,8 @@ Future<void> bgWrite(String name, String text) async {}
 Future<String?> bgRead(String name) async => null;
 Future<List<String>> bgList(String prefix) async => const [];
 Future<void> bgRemove(String name) async {}
+
+// خط المستخدم: غير متاح في نسخة الويب التجريبية.
+Future<List<Uint8List>> readUserFonts() async => const [];
+Future<void> saveUserFont(String name, Uint8List bytes) async {}
+Future<void> clearUserFonts() async {}

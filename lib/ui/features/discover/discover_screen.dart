@@ -14,6 +14,7 @@ import '../../../domain/taste.dart' show catFields, numFields, fieldNames;
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../sources/source_search.dart' show syncFromSources;
 import 'taste_state.dart';
 
 /// مخزون الاقتراحات (محفوظ على الجهاز) + المخفيات.
@@ -72,7 +73,7 @@ class DiscoverScreen extends ConsumerWidget {
     final t = ref.watch(tasteProvider).value ?? const TasteState();
     final tn = ref.read(tasteProvider.notifier);
     final lib = ref.watch(libraryProvider).value ?? const [];
-    final unlinkedFavs = lib.where((p) => p.fav && p.stashId.isEmpty && !p.isMinor).toList();
+    final unlinkedFavs = lib.where((p) => p.fav && p.stashId.isEmpty && p.pdbId.isEmpty && !p.isMinor).toList();
     final ready = t.at > 0 && !t.insufficient && t.recs.isNotEmpty;
 
     // المسارات: كل اسم مرة واحدة فقط في الصفحة
@@ -85,7 +86,7 @@ class DiscoverScreen extends ConsumerWidget {
     final lanes = <(String, String, List<TasteRec>, bool)>[];
     if (ready) {
       lanes.add(('☀️ اختيار اليوم', 'يتجدد كل يوم · متنوّع البلدان', take(daily, 12), false));
-      for (final w in t.withNames) { lanes.add(('👯 لأنك تحبين ${w.$2}', 'عملن معها، ويشبهن ذوقك', take(t.recs.where((r) => r.tags.contains('with:${w.$1}')), 12), false)); }
+      for (final w in t.withNames) { lanes.add(('👯 لأنك تحب ${w.$2}', 'عملن معها، ويشبهن ذوقك', take(t.recs.where((r) => r.tags.contains('with:${w.$1}')), 12), false)); }
       lanes.add(('✨ وجوه جديدة تناسبك', 'بدأن خلال آخر 3 سنوات', take(t.recs.where((r) => r.tags.contains('debut')), 12), false));
       lanes.add(('🌱 18–21 تناسب ذوقك', 'تاريخ ميلاد كامل من StashDB · العمر محسوب اليوم', take(t.recs.where((r) => r.tags.contains('young')), 12), true));
       if (topCountry != null) lanes.add(('🌍 من $topCountry', 'البلد الأكثر بين مفضلاتك', take(t.recs.where((r) => r.tags.contains('country')), 12), false));
@@ -145,12 +146,12 @@ class DiscoverScreen extends ConsumerWidget {
     ];
   }
 
-  /// ضبط التحليل: اختاري الخصائص التي تهمك (تُطبَّق عند «حدّث»).
+  /// ضبط التحليل: اختر الخصائص التي تهمك (تُطبَّق عند «حدّث»).
   static void _settings(BuildContext context, WidgetRef ref) => showModalBottomSheet(context: context, isScrollControlled: true, useSafeArea: true, builder: (c) => Consumer(builder: (c, ref, _) {
     final t = ref.watch(tasteProvider).value ?? const TasteState();
     return ListView(padding: const EdgeInsets.all(S.s4), shrinkWrap: true, children: [
       Text('ضبط التحليل', style: Theme.of(c).textTheme.titleLarge),
-      const Text('اختاري ما يُحسب في ذوقك. البيانات من StashDB الموثّقة فقط، ولا شيء يُستنتج من الصور.', style: TextStyle(color: C.muted)),
+      const Text('اختر ما يُحسب في ذوقك. البيانات من StashDB الموثّقة فقط، ولا شيء يُستنتج من الصور.', style: TextStyle(color: C.muted)),
       const SizedBox(height: S.s2),
       for (final f in [...catFields, ...numFields]) SwitchListTile(dense: true, value: !t.ignore.contains(f), title: Text(fieldNames[f] ?? f), onChanged: (_) => ref.read(tasteProvider.notifier).toggleField(f)),
       const SizedBox(height: S.s2),
@@ -161,19 +162,38 @@ class DiscoverScreen extends ConsumerWidget {
   }));
 }
 
-/// مفضلات غير مرتبطة بـ StashDB ⇒ لا تدخل التحليل. ربط سريع لكل واحدة.
-class _LinkFavs extends StatelessWidget {
+/// مفضلات غير مرتبطة بأي مصدر ⇒ لا تدخل التحليل. ربط تلقائي بالمصدرين معًا (لمن لها تاريخ ميلاد كامل) أو ربط يدوي لكل واحدة.
+class _LinkFavs extends ConsumerStatefulWidget {
   const _LinkFavs({required this.l});
   final List<Performer> l;
+  @override ConsumerState<_LinkFavs> createState() => _LinkFavsState();
+}
+class _LinkFavsState extends ConsumerState<_LinkFavs> {
+  String _msg = ''; bool _busy = false;
+  Future<void> _auto() async {
+    final auto = widget.l.where((p) => RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(p.birth)).toList();
+    if (auto.isEmpty) { setState(() => _msg = 'لا توجد مفضلة بتاريخ ميلاد كامل — اربطها يدويًا من الأزرار.'); return; }
+    setState(() => _busy = true); var ok = 0;
+    for (final p in auto) {
+      if (!mounted) return;
+      setState(() => _msg = 'ربط ${p.name}…');
+      try { final r = await syncFromSources(ref, existing: p); if (r.$1 != null && (r.$1!.stashId.isNotEmpty || r.$1!.pdbId.isNotEmpty)) ok++; } catch (_) {}
+    }
+    if (mounted) setState(() { _busy = false; _msg = 'رُبطت $ok من ${auto.length} — اضغط ✨ لتحديث التحليل.'; });
+  }
   @override
   Widget build(BuildContext context) => Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s3, S.s4, 0), child: Container(
     padding: const EdgeInsets.all(S.s3), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: C.line)),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('${l.length} من مفضلاتك خارج التحليل', style: const TextStyle(fontWeight: FontWeight.w700)),
-      const Text('غير مرتبطة بـ StashDB. اربطيها ليصبح التحليل أدق.', style: TextStyle(color: C.muted, fontSize: 12.5)),
+      Text('${widget.l.length} من مفضلاتك خارج التحليل', style: const TextStyle(fontWeight: FontWeight.w700)),
+      const Text('غير مرتبطة بـ StashDB ولا ThePornDB. اربطها ليصبح التحليل أدق.', style: TextStyle(color: C.muted, fontSize: 12.5)),
+      const SizedBox(height: S.s2),
+      FilledButton.tonalIcon(onPressed: _busy ? null : _auto, icon: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.merge_rounded),
+        label: const Text('ربط تلقائي بالمصدرين (لمن لها تاريخ ميلاد كامل)')),
+      if (_msg.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(_msg, style: const TextStyle(color: C.muted, fontSize: 12))),
       const SizedBox(height: S.s2),
       SizedBox(height: 40, child: ListView(scrollDirection: Axis.horizontal, children: [
-        for (final p in l.take(20)) Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: ActionChip(avatar: const Icon(Icons.link_rounded, size: 16), label: Text(p.name),
+        for (final p in widget.l.take(20)) Padding(padding: const EdgeInsetsDirectional.only(end: 8), child: ActionChip(avatar: const Icon(Icons.link_rounded, size: 16), label: Text(p.name),
           onPressed: () => context.push('/search?q=${Uri.encodeQueryComponent(p.name)}&link=${p.id}'))),
       ])),
     ])));
@@ -252,7 +272,7 @@ class TasteCard extends ConsumerWidget {
         const Text('«اكتشف» كله مبني على ذوقك: أحلل مفضلاتك من بياناتهن المهنية الموثّقة في StashDB (العرق، الشعر، العيون، الطول، العمر، بداية المسيرة، الوشوم…) — المفضلة الأعلى تقييمًا تزن أكثر — ثم أقترح ممثلات يشبهنها، ولكل اقتراح سببه. لا يُستنتج شيء من الصور.', style: TextStyle(color: C.muted, height: 1.6)),
         if (unlinked > 0) Padding(padding: const EdgeInsets.only(top: 6), child: Text('ملاحظة: $unlinked من مفضلاتك غير مرتبطة بـ StashDB ولن تدخل التحليل.', style: const TextStyle(color: C.gold, fontSize: 12.5))),
         const SizedBox(height: S.s3),
-        SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: t.busy ? null : n.analyze, icon: const Icon(Icons.auto_awesome_rounded), label: Text(t.busy ? t.msg : 'حلّلي ذوقي'))),
+        SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: t.busy ? null : n.analyze, icon: const Icon(Icons.auto_awesome_rounded), label: Text(t.busy ? t.msg : 'حلّل ذوقي'))),
       ])));
     }
     final strong = t.bars.where((b) => b.strong).toList();
@@ -260,7 +280,7 @@ class TasteCard extends ConsumerWidget {
     return Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: InkWell(borderRadius: BorderRadius.circular(S.rXl), onTap: () => _details(context, t), child: Container(padding: const EdgeInsets.all(S.s4), decoration: deco, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       head('من ${t.analyzed} من ${t.total} · ${t.basis}'),
       const SizedBox(height: S.s3),
-      if (t.insufficient) const Padding(padding: EdgeInsets.only(bottom: S.s2), child: Text('البيانات غير كافية لتحليل دقيق: أحتاج 3 مفضلات على الأقل مرتبطة بـ StashDB. اربطي مفضلاتك من الأسفل ثم حدّثي.', style: TextStyle(color: C.gold, height: 1.6))),
+      if (t.insufficient) const Padding(padding: EdgeInsets.only(bottom: S.s2), child: Text('البيانات غير كافية لتحليل دقيق: أحتاج 3 مفضلات على الأقل مرتبطة بـ StashDB. اربط مفضلاتك من الأسفل ثم حدّث.', style: TextStyle(color: C.gold, height: 1.6))),
       for (final b in show) _bar(b),
       if (!t.insufficient && show.isEmpty) const Text('لا نمط واضح: ذوقك متنوع جدًا في الخصائص الموثّقة.', style: TextStyle(color: C.muted)),
       const SizedBox(height: 4),

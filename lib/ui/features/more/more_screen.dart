@@ -17,6 +17,7 @@ import '../../../domain/performer.dart';
 import '../sources/source_search.dart' show syncFromSources;
 import '../../core/state.dart';
 import '../../core/theme.dart';
+import '../../core/user_font.dart';
 import '../../core/widgets.dart';
 import '../privacy/lock_gate.dart';
 import '../tools/lists_state.dart';
@@ -113,14 +114,15 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
       ]),
       _group('مكتبتي', [_tile(Icons.handyman_rounded, 'الأدوات', 'القوائم، المواجهة، المستويات، الأمنيات، الإنجازات، مزاج الليلة…', () => context.push('/tools')),
-        _tile(Icons.insights_rounded, 'الإحصائيات وملخّص السنة', 'أكثر من شاهدتِ، سلاسل المشاهدة، البلدان، الأعمار…', () => context.push('/stats')),
-        _tile(Icons.tv_rounded, 'المزامنة مع الشاشة', 'أرسلي مكتبتك إلى Android TV على نفس الشبكة', () => context.push('/sync'))]),
+        _tile(Icons.insights_rounded, 'الإحصائيات وملخّص السنة', 'أكثر من شاهدت، سلاسل المشاهدة، البلدان، الأعمار…', () => context.push('/stats')),
+        _tile(Icons.tv_rounded, 'المزامنة مع الشاشة', 'أرسل مكتبتك إلى Android TV على نفس الشبكة', () => context.push('/sync'))]),
       _group('الإشعارات والتحديث في الخلفية', [const _BgSection()]),
       _group('المصادر الرسمية', [
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
         const _DualTools(),
       ]),
+      _group('الخط', [const _FontSection()]),
       _group('الخصوصية', [
         const PrivacySection(),
         _tile(Icons.verified_user_rounded, 'بوابة +18', 'أي سجل عمره أقل من 18، أو تاريخه غير صالح، يُرفض في الحفظ والاستيراد والعرض.', null),
@@ -216,11 +218,11 @@ class _BgSectionState extends ConsumerState<_BgSection> {
   Future<void> _test() async {
     var p = await notifStatus();
     if (!p.$1) { await requestNotifPermission(); p = await notifStatus(); }
-    if (!p.$1) { if (mounted) { setState(() => _perm = p); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${p.$2} — اضغطي «السماح» ثم فعّليها من الإعدادات'))); } return; }
+    if (!p.$1) { if (mounted) { setState(() => _perm = p); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${p.$2} — اضغط «السماح» ثم فعّلها من الإعدادات'))); } return; }
     try {
       await testNotification();
       await testNotification(delay: const Duration(seconds: 20));
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(duration: Duration(seconds: 6), content: Text('أُرسل إشعار الآن، وآخر بعد 20 ثانية — اخرجي من التطبيق الآن لتجربة وصوله في الخلفية')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(duration: Duration(seconds: 6), content: Text('أُرسل إشعار الآن، وآخر بعد 20 ثانية — اخرج من التطبيق الآن لتجربة وصوله في الخلفية')));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر الإرسال: $e'))); }
     await _load();
   }
@@ -245,9 +247,9 @@ class _BgSectionState extends ConsumerState<_BgSection> {
         subtitle: Text(_perm?.$2 ?? '', style: const TextStyle(color: C.muted)),
         trailing: _perm?.$1 == false ? TextButton(onPressed: _fixPerm, child: const Text('السماح')) : null),
       if (!kIsWeb) ListTile(leading: const Icon(Icons.campaign_rounded, color: C.gold), title: const Text('إرسال إشعار تجريبي'),
-        subtitle: const Text('فوري (والتطبيق مفتوح) + آخر بعد 20 ثانية — اخرجي من التطبيق أو أغلقيه لتتأكدي أنه يصل', style: TextStyle(color: C.muted)),
+        subtitle: const Text('فوري (والتطبيق مفتوح) + آخر بعد 20 ثانية — اخرج من التطبيق أو أغلقه لتتأكد أنه يصل', style: TextStyle(color: C.muted)),
         onTap: _test),
-      const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('الإشعار عام بلا أسماء ولا صور. أندرويد: كل ~12 ساعة عند توفر الشروط. آيفون: النظام يقرر التوقيت حسب استخدامك والبطارية، ولا يعمل إن أغلقتِ التطبيق قسرًا من قائمة التطبيقات.', style: TextStyle(color: C.muted, fontSize: 12, height: 1.5))),
+      const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('الإشعار عام بلا أسماء ولا صور. أندرويد: كل ~12 ساعة عند توفر الشروط. آيفون: النظام يقرر التوقيت حسب استخدامك والبطارية، ولا يعمل إن أغلقت التطبيق قسرًا من قائمة التطبيقات.', style: TextStyle(color: C.muted, fontSize: 12, height: 1.5))),
     ]);
   }
 }
@@ -282,10 +284,10 @@ class _DualToolsState extends ConsumerState<_DualTools> {
 
   Future<void> _syncAll() async {
     final lib = ref.read(libraryProvider.notifier);
-    final l = lib.items.where((p) => !p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty)).toList();
+    final l = lib.items.where((p) => !p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty || RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(p.birth))).toList();
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('تحديث كل المكتبة من المصدرين؟'),
-      content: Text('${l.length} ممثلة مرتبطة. لكل واحدة: البحث عنها في المصدر الآخر، ثم جلب المعلومات والأعمال والصور من الاثنين وحذف المكرر. قد يستغرق وقتًا ويستهلك بيانات — يُفضّل على Wi-Fi. يمكنك الإيقاف في أي لحظة.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ابدئي'))]));
+      content: Text('${l.length} ممثلة (المرتبطة + غير المرتبطة التي لها تاريخ ميلاد كامل). لكل واحدة: البحث عن كل سجلاتها بكل أسمائها في المصدرين، ثم جلب المعلومات والأعمال والصور من الاثنين وحذف المكرر. قد يستغرق وقتًا ويستهلك بيانات — يُفضّل على Wi-Fi. يمكنك الإيقاف في أي لحظة.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ابدأ'))]));
     if (ok != true) return;
     setState(() { _busy = true; _stop = false; });
     var done = 0, linked = 0, fails = 0;
@@ -294,7 +296,7 @@ class _DualToolsState extends ConsumerState<_DualTools> {
       setState(() => _msg = '${done + 1} / ${l.length} · ${p.name}');
       final hadBoth = p.stashId.isNotEmpty && p.pdbId.isNotEmpty;
       try {
-        final r = await syncFromSources(ref, existing: lib.items.where((x) => x.id == p.id).firstOrNull ?? p);
+        final r = await syncFromSources(ref, existing: lib.items.where((x) => x.id == p.id).firstOrNull ?? p, deep: false);
         if (r.$1 == null) { fails++; } else if (!hadBoth && r.$1!.stashId.isNotEmpty && r.$1!.pdbId.isNotEmpty) { linked++; }
       } catch (_) { fails++; }
       done++;
@@ -315,4 +317,28 @@ class _DualToolsState extends ConsumerState<_DualTools> {
       Expanded(child: Text(_msg, style: const TextStyle(color: C.muted, fontSize: 12.5))),
     ])),
   ]);
+}
+
+/// الخط: «ثمانية» رخصته تمنع إعادة توزيعه، فلا يُضمَّن في التطبيق — تنزّله من موقعه الرسمي ثم تستورده هنا (يبقى على جهازك فقط).
+class _FontSection extends ConsumerWidget {
+  const _FontSection();
+  static const _official = 'https://ask.thmanyah.com/hc/en-001/articles/45993930027281-Thmanyah-Font-for-Everyone';
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final on = ref.watch(userFontProvider).value == true;
+    final n = ref.read(userFontProvider.notifier);
+    return Column(children: [
+      ListTile(leading: const Icon(Icons.font_download_rounded, color: C.gold), title: Text(on ? 'الخط الحالي: الخط المستورد (ثمانية)' : 'الخط الحالي: IBM Plex Sans Arabic'),
+        subtitle: const Text('لاستخدام خط «ثمانية»: نزّله مجانًا من موقعه الرسمي، ثم استورد ملفاته هنا (كل الأوزان معًا). يُحفظ على جهازك فقط.', style: TextStyle(color: C.muted))),
+      ListTile(leading: const Icon(Icons.open_in_new_rounded, color: C.gold), title: const Text('صفحة تنزيل خط ثمانية الرسمية'),
+        onTap: () => launchUrl(Uri.parse(_official), mode: LaunchMode.externalApplication)),
+      ListTile(leading: const Icon(Icons.upload_file_rounded, color: C.gold), title: const Text('استيراد ملفات الخط (OTF / TTF)'),
+        onTap: kIsWeb ? null : () async {
+          final m = ScaffoldMessenger.of(context);
+          final c = await n.import();
+          m.showSnackBar(SnackBar(content: Text(c > 0 ? 'تم: استُورد $c ملف خط وطُبّق على التطبيق' : 'لم يُستورد شيء — اختر ملفات بامتداد .otf أو .ttf')));
+        }),
+      if (on) ListTile(leading: const Icon(Icons.restart_alt_rounded, color: C.muted), title: const Text('الرجوع للخط الافتراضي'), onTap: n.reset),
+    ]);
+  }
 }

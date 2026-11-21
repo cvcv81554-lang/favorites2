@@ -30,6 +30,9 @@ class Performer {
   String get tier => (raw['tier'] ?? '').toString();
   String get pdbId => (raw['pdbId'] ?? '').toString();
   String get stashId => (raw['stashId'] ?? '').toString();
+  /// كل سجلاتها في StashDB/ThePornDB (الرئيسي + سجلات أسمائها الأخرى). حقول جديدة اختيارية — السجلات القديمة تعمل كما هي.
+  List<String> get stashIds => {if (stashId.isNotEmpty) stashId, ..._strList(raw['stashIds'])}.toList();
+  List<String> get pdbIds => {if (pdbId.isNotEmpty) pdbId, ..._strList(raw['pdbIds'])}.toList();
   int? get age { final a = sdAge(birth); return a.age; }
   bool get isMinor => minorRec(raw);
   int get watchedCount => works.where((w) => w['w'] == 1 || w['w'] == true).length;

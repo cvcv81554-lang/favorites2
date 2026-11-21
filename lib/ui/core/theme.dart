@@ -29,9 +29,9 @@ abstract final class S {
   static const ease = Cubic(.2, .8, .2, 1);
 }
 
-ThemeData buildTheme() {
-  const font = 'Plex';
-  final base = ThemeData(useMaterial3: true, brightness: Brightness.dark, fontFamily: font);
+/// [font]: خط المستخدم المستورد (مثل «ثمانية») أو الافتراضي Plex — وPlex احتياطي لأي حرف ناقص.
+ThemeData buildTheme({String font = 'Plex'}) {
+  final base = ThemeData(useMaterial3: true, brightness: Brightness.dark, fontFamily: font, fontFamilyFallback: const ['Plex']);
   final cs = const ColorScheme.dark(
     primary: C.gold, onPrimary: C.onAccent, secondary: C.rose, onSecondary: Colors.white,
     surface: C.surface, onSurface: C.text, surfaceContainerHighest: C.surface2, outline: C.line2, error: C.danger,
@@ -50,7 +50,7 @@ ThemeData buildTheme() {
     ),
     appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0, scrolledUnderElevation: 0, centerTitle: false),
     cardTheme: CardThemeData(color: C.surface, elevation: 0, margin: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rLg), side: const BorderSide(color: C.line))),
-    chipTheme: base.chipTheme.copyWith(backgroundColor: C.surface, selectedColor: C.gold.withValues(alpha: .18), side: const BorderSide(color: C.line2), labelStyle: const TextStyle(fontFamily: font, color: C.text), shape: const StadiumBorder()),
+    chipTheme: base.chipTheme.copyWith(backgroundColor: C.surface, selectedColor: C.gold.withValues(alpha: .18), side: const BorderSide(color: C.line2), labelStyle: TextStyle(fontFamily: font, color: C.text), shape: const StadiumBorder()),
     inputDecorationTheme: InputDecorationTheme(
       filled: true, fillColor: C.surface, hintStyle: const TextStyle(color: C.muted),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(S.rMd), borderSide: const BorderSide(color: C.line2)),
@@ -58,15 +58,15 @@ ThemeData buildTheme() {
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(S.rMd), borderSide: const BorderSide(color: C.gold, width: 1.4)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     ),
-    filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(backgroundColor: C.gold, foregroundColor: C.onAccent, minimumSize: const Size(48, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rMd)), textStyle: const TextStyle(fontFamily: font, fontWeight: FontWeight.w700))),
+    filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(backgroundColor: C.gold, foregroundColor: C.onAccent, minimumSize: const Size(48, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rMd)), textStyle: TextStyle(fontFamily: font, fontWeight: FontWeight.w700))),
     outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(foregroundColor: C.text, minimumSize: const Size(48, 48), side: const BorderSide(color: C.line2), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rMd)))),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: C.bg2.withValues(alpha: .92), indicatorColor: C.gold.withValues(alpha: .16), height: 68,
       labelTextStyle: WidgetStateProperty.resolveWith((s) => TextStyle(fontFamily: font, fontSize: 11.5, fontWeight: s.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w500, color: s.contains(WidgetState.selected) ? C.gold2 : C.muted)),
       iconTheme: WidgetStateProperty.resolveWith((s) => IconThemeData(color: s.contains(WidgetState.selected) ? C.gold2 : C.muted)),
     ),
-    navigationRailTheme: const NavigationRailThemeData(backgroundColor: C.bg2, indicatorColor: Color(0x2EE8B86D), selectedIconTheme: IconThemeData(color: C.gold2), unselectedIconTheme: IconThemeData(color: C.muted), selectedLabelTextStyle: TextStyle(fontFamily: font, color: C.gold2, fontWeight: FontWeight.w700), unselectedLabelTextStyle: TextStyle(fontFamily: font, color: C.muted)),
-    snackBarTheme: SnackBarThemeData(backgroundColor: C.surface2, contentTextStyle: const TextStyle(fontFamily: font, color: C.text), behavior: SnackBarBehavior.floating, showCloseIcon: true, closeIconColor: C.muted, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rMd))),
+    navigationRailTheme: NavigationRailThemeData(backgroundColor: C.bg2, indicatorColor: Color(0x2EE8B86D), selectedIconTheme: IconThemeData(color: C.gold2), unselectedIconTheme: IconThemeData(color: C.muted), selectedLabelTextStyle: TextStyle(fontFamily: font, color: C.gold2, fontWeight: FontWeight.w700), unselectedLabelTextStyle: TextStyle(fontFamily: font, color: C.muted)),
+    snackBarTheme: SnackBarThemeData(backgroundColor: C.surface2, contentTextStyle: TextStyle(fontFamily: font, color: C.text), behavior: SnackBarBehavior.floating, showCloseIcon: true, closeIconColor: C.muted, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rMd))),
     bottomSheetTheme: const BottomSheetThemeData(backgroundColor: C.bg2, showDragHandle: true, shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(S.rXl)))),
     dialogTheme: DialogThemeData(backgroundColor: C.bg2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(S.rXl))),
     pageTransitionsTheme: const PageTransitionsTheme(builders: {

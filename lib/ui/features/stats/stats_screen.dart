@@ -54,7 +54,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             DropdownButton<int>(value: _year, underline: const SizedBox(), dropdownColor: C.bg2, items: [for (final yy in (years.whereType<int>().toList()..sort((a, b) => b.compareTo(a)))) DropdownMenuItem(value: yy, child: Text('$yy'))], onChanged: (v) => setState(() => _year = v!))]),
           const SizedBox(height: S.s3),
           Wrap(spacing: S.s3, runSpacing: S.s3, children: [
-            _big('${seenYear.length}', 'عمل شاهدتِه'), _big('$addedYear', 'ممثلة أضفتِها'), _big('$streak', 'أطول سلسلة أيام'), _big(avgR == 0 ? '—' : avgR.toStringAsFixed(1), 'متوسط تقييمك'),
+            _big('${seenYear.length}', 'عمل شاهدته'), _big('$addedYear', 'ممثلة أضفتها'), _big('$streak', 'أطول سلسلة أيام'), _big(avgR == 0 ? '—' : avgR.toStringAsFixed(1), 'متوسط تقييمك'),
           ]),
           if (topP.isNotEmpty) ...[
             const SizedBox(height: S.s4), const Text('الأكثر مشاهدة', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700)), const SizedBox(height: S.s2),
@@ -68,12 +68,12 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _bars(byMonth.map((v) => v.toDouble()).toList(), const ['ين', 'فب', 'مر', 'أب', 'ما', 'يو', 'يل', 'أغ', 'سب', 'أك', 'نو', 'دي']),
         ]),
       ),
-      SectionHeader('مكتبتك', sub: '${lib.length} ممثلة · ${works.length} عمل · ${works.where((g) => g.seen).length} شاهدتِه'),
+      SectionHeader('مكتبتك', sub: '${lib.length} ممثلة · ${works.length} عمل · ${works.where((g) => g.seen).length} شاهدته'),
       _card('التقييمات', _bars(rd.map((v) => v.toDouble()).toList(), const ['1★', '2★', '3★', '4★', '5★'])),
       _card('الأعمار', _bars(ages.values.map((v) => v.toDouble()).toList(), ages.keys.toList())),
       if (topCc.isNotEmpty) _card('البلدان', Column(children: [for (final e in topCc) _hbar(e.key, e.value, topCc.first.value)])),
       _card('حالة الأعمال', Column(children: [
-        _hbar('شاهدتِها', works.where((g) => g.seen).length, max(1, works.length)),
+        _hbar('شاهدتها', works.where((g) => g.seen).length, max(1, works.length)),
         _hbar('للمشاهدة', works.where((g) => g.q && !g.seen).length, max(1, works.length)),
         _hbar('قادمة', works.where((g) => g.isUpcoming).length, max(1, works.length)),
       ])),

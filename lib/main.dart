@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'data/background.dart';
 import 'ui/core/bg_coordinator.dart';
 import 'ui/core/theme.dart';
+import 'ui/core/user_font.dart';
 import 'ui/features/discover/candidate_screen.dart';
 import 'ui/features/discover/discover_screen.dart';
 import 'ui/features/home/home_screen.dart';
@@ -57,11 +58,13 @@ final _router = GoRouter(
 class FavoritesApp extends ConsumerWidget {
   const FavoritesApp({super.key});
   @override
-  Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final font = ref.watch(userFontProvider).value == true ? userFontFamily : 'Plex';   // خط المستخدم (ثمانية) إن استورده
+    return MaterialApp.router(
     title: 'المفضلة',
     debugShowCheckedModeBanner: false,
-    theme: buildTheme(),
-    darkTheme: buildTheme(),
+    theme: buildTheme(font: font),
+    darkTheme: buildTheme(font: font),
     themeMode: ThemeMode.dark,
     locale: const Locale('ar'),
     supportedLocales: const [Locale('ar'), Locale('en')],
@@ -74,4 +77,5 @@ class FavoritesApp extends ConsumerWidget {
     routerConfig: _router,
     shortcuts: {...WidgetsApp.defaultShortcuts, const SingleActivator(LogicalKeyboardKey.select): const ActivateIntent()},
   );
+  }
 }

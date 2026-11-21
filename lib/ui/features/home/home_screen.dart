@@ -48,7 +48,7 @@ class HomeScreen extends ConsumerWidget {
               const SizedBox(width: S.s2),
               Expanded(child: OutlinedButton.icon(onPressed: () => context.push('/tools'), icon: const Icon(Icons.handyman_rounded, color: C.gold), label: const Text('الأدوات'))),
             ]))),
-            if (viewed.isNotEmpty) _row(context, 'تابعتِ مؤخرًا', viewed.take(16).toList()),
+            if (viewed.isNotEmpty) _row(context, 'تابعت مؤخرًا', viewed.take(16).toList()),
             _row(context, 'أُضيفت حديثًا', recent.take(16).toList()),
             if (bday.isNotEmpty) _row(context, '🎂 أعياد ميلاد هذا الشهر', bday),
             if (top.isNotEmpty) _row(context, 'الأعلى تقييمًا', top.take(16).toList()),

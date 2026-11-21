@@ -25,7 +25,7 @@ class ListsN extends AsyncNotifier<List<NamedList>> {
 }
 final listsProvider = AsyncNotifierProvider<ListsN, List<NamedList>>(ListsN.new);
 
-/// قائمة الأمنيات: أسماء تريدين إضافتها لاحقًا ({n, t}، حتى 500). تُزال تلقائيًا عند إضافة ممثلة بنفس الاسم.
+/// قائمة الأمنيات: أسماء تريد إضافتها لاحقًا ({n, t}، حتى 500). تُزال تلقائيًا عند إضافة ممثلة بنفس الاسم.
 class WishN extends AsyncNotifier<List<Map<String, dynamic>>> {
   @override
   Future<List<Map<String, dynamic>>> build() async {

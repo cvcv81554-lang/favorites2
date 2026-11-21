@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../data/dual_source.dart' show tpdbPerformer, tpdbAsStash, fillFrom;
 import '../../../data/keys.dart';
 import '../../../data/sources.dart';
 import '../../../domain/age_gate.dart';
@@ -69,13 +70,16 @@ class TasteN extends AsyncNotifier<TasteState> {
   /// التحليل الكامل: مفضلاتك (موزونة بتقييمك) ← بياناتهن الموثّقة (ذاكرة 14 يومًا) ← ملف الذوق ← مرشحات من عدة مصادر رسمية ← ترتيب بأسباب ← مسارات.
   Future<void> analyze() async {
     if (s.busy) return;
-    if (!await ApiKeys.has(ApiKeys.stash)) { _set(s.copy(err: 'تحليل الذوق يحتاج مفتاح StashDB — أضيفيه من «المزيد».')); return; }
+    final hasS = await ApiKeys.has(ApiKeys.stash), hasT = await ApiKeys.has(ApiKeys.tpdb);
+    if (!hasS) { _set(s.copy(err: 'تحليل الذوق يحتاج مفتاح StashDB (للبحث عن المشابهات) — أضفه من «المزيد». ThePornDB يُستخدم معه إن وُجد مفتاحه.')); return; }
     final repo = await ref.read(repoProvider.future);
     final lib = ref.read(libraryProvider).value ?? const <Performer>[];
     var basis = 'المفضلة';
     var pool = lib.where((p) => p.fav && !p.isMinor).toList();
-    if (pool.where((p) => p.stashId.isNotEmpty).length < 3) { basis = 'المفضلة + الأعلى تقييمًا (المفضلة وحدها قليلة)'; pool = lib.where((p) => (p.fav || p.rating >= 4) && !p.isMinor).toList(); }
-    final linked = pool.where((p) => p.stashId.isNotEmpty).toList();
+    bool linkedP(Performer p) => p.stashId.isNotEmpty || (hasT && p.pdbId.isNotEmpty);
+    if (pool.where(linkedP).length < 3) { basis = 'المفضلة + الأعلى تقييمًا (المفضلة وحدها قليلة)'; pool = lib.where((p) => (p.fav || p.rating >= 4) && !p.isMinor).toList(); }
+    final linked = pool.where(linkedP).toList();
+    String ck(Performer p) => p.stashId.isNotEmpty ? p.stashId : 'tp:${p.pdbId}';   // مفتاح الذاكرة
     final unlinked = pool.length - linked.length;
     _set(s.copy(busy: true, err: '', msg: 'جمع بيانات ${linked.length} ممثلة…'));
     try {
@@ -84,16 +88,19 @@ class TasteN extends AsyncNotifier<TasteState> {
       final now = DateTime.now().millisecondsSinceEpoch; var i = 0;
       for (final p in linked) {
         i++;
-        final c = cache[p.stashId];
+        final c = cache[ck(p)];
         if (c is Map && now - ((c['t'] as num?) ?? 0) < 14 * 86400000) continue;
         _set(s.copy(msg: 'بيانات ${p.name} ($i/${linked.length})'));
-        try { final d = await stashPerformer(p.stashId); if (d != null) cache[p.stashId] = {'t': now, 'd': d}; }
-        on SourceError catch (e) { if (e.status == 401 || e.status == 403) rethrow; }
+        // المصدران: StashDB أساسًا، وThePornDB يملأ الناقص (أو وحده إن لم تكن في StashDB)
+        Map<String, dynamic>? d;
+        try { if (p.stashId.isNotEmpty) d = await stashPerformer(p.stashId); } on SourceError catch (e) { if (e.status == 401 || e.status == 403) rethrow; }
+        if (hasT && p.pdbId.isNotEmpty) { try { final t = await tpdbPerformer(p.pdbId); if (t != null) d = d == null ? tpdbAsStash(t) : fillFrom(d, tpdbAsStash(t)); } catch (_) {} }
+        if (d != null) cache[ck(p)] = {'t': now, 'd': d};
         await Future<void>.delayed(const Duration(milliseconds: 200));
       }
       await repo.kvSet('attr_cache', cache);
-      final have = [for (final p in linked) if (cache[p.stashId] is Map) p];
-      final feats = [for (final p in have) featuresOf(Map<String, dynamic>.from((cache[p.stashId] as Map)['d'] as Map))];
+      final have = [for (final p in linked) if (cache[ck(p)] is Map) p];
+      final feats = [for (final p in have) featuresOf(Map<String, dynamic>.from((cache[ck(p)] as Map)['d'] as Map))];
       final weights = [for (final p in have) tasteWeight(fav: p.fav, rating: p.rating.toDouble())];
       final prof = buildProfile(feats, total: pool.length, weights: weights, ignore: s.ignore);
       final lines = describeProfile(prof);
@@ -136,7 +143,7 @@ class TasteN extends AsyncNotifier<TasteState> {
         } on SourceError catch (e) { if (e.status == 401 || e.status == 403) rethrow; }
         await Future<void>.delayed(const Duration(milliseconds: 220));
       }
-      final top = (have.toList()..sort((a, b) => (b.rating + (b.fav ? 1 : 0)).compareTo(a.rating + (a.fav ? 1 : 0)))).take(5).toList();
+      final top = (have.where((p) => p.stashId.isNotEmpty).toList()..sort((a, b) => (b.rating + (b.fav ? 1 : 0)).compareTo(a.rating + (a.fav ? 1 : 0)))).take(5).toList();
       final withNames = <(String, String)>[];
       for (final p in top) {
         qi++; _set(s.copy(msg: 'من عمل مع ${p.name}… ($qi/${queries.length + 5})'));

@@ -57,7 +57,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               if (v == 'photos') {
                 final m = ScaffoldMessenger.of(context);
                 final n = await addPhotosFromGallery(ref, p);
-                m.showSnackBar(SnackBar(content: Text(n < 0 ? 'وصلتِ إلى الحد (30 صورة)' : n == 0 ? 'لم تُختر صور' : 'أُضيفت $n صورة')));
+                m.showSnackBar(SnackBar(content: Text(n < 0 ? 'وصلت إلى الحد (30 صورة)' : n == 0 ? 'لم تُختر صور' : 'أُضيفت $n صورة')));
                 return;
               }
               if (v == 'link') { context.push('/search?q=${Uri.encodeQueryComponent(p.name)}&link=${p.id}'); return; }
@@ -68,7 +68,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
                 m.hideCurrentSnackBar(); m.showSnackBar(SnackBar(content: Text(r)));
               }
             }, itemBuilder: (_) => [
-              if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty) const PopupMenuItem(value: 'sync', child: Text('تحديث من المصدرين (معلومات · أعمال · صور)')),
+              if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty || RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(p.birth)) const PopupMenuItem(value: 'sync', child: Text('تحديث من المصدرين (معلومات · أعمال · صور)')),
               const PopupMenuItem(value: 'photos', child: Text('إضافة صور من الجهاز')),
               const PopupMenuItem(value: 'lists', child: Text('القوائم')),
               PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
@@ -110,7 +110,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
             onPressed: () async { final u = accUrl(a); if (u == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('رابط غير صالح'))); return; } await launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication); })])],
           if (p.notes.isNotEmpty) ...[const SizedBox(height: S.s4), Container(width: double.infinity, padding: const EdgeInsets.all(S.s4), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)), child: Text(p.notes, style: const TextStyle(height: 1.7)))],
         ]))),
-        SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدتِ ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
+        SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدت ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
         if (works.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s2), child: Align(alignment: AlignmentDirectional.centerStart,
           child: TextButton.icon(onPressed: () => showPerformerWorks(context, ref, p.id), icon: const Icon(Icons.grid_view_rounded, size: 18), label: const Text('عرض أعمالها في قسم الأعمال (بالصور والفلاتر)'))))),
         if (works.isEmpty) const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(S.s4), child: Text('لا أعمال مسجلة بعد.', style: TextStyle(color: C.muted)))),

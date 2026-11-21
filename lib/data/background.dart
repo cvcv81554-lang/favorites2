@@ -54,7 +54,7 @@ Future<bool> requestNotifPermission() async {
 /// مدخلات مهمة الخلفية (من التطبيق). البوابة: البالغات فقط.
 Map<String, dynamic> buildBgInput(BgSettings s, List<Performer> lib, Set<String> studioIds) => {
   'v': 1, 'settings': s.toJson(),
-  'ids': [for (final p in lib) if (!p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty)) {'id': p.id, 's': p.stashId, 't': p.pdbId, 'k': [for (final w in p.works) wKeyOf(w)],
+  'ids': [for (final p in lib) if (!p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty)) {'id': p.id, 's': p.stashId, 't': p.pdbId, 'ss': p.stashIds, 'ts': p.pdbIds, 'k': [for (final w in p.works) wKeyOf(w)],
     'w': [for (final w in p.works) {for (final k in const ['t', 's', 'd', 'is', 'ip']) if ('${w[k] ?? ''}'.isNotEmpty) k: w[k]}]}],
   'img': studioIds.toList(),
 };
@@ -87,8 +87,11 @@ Future<FetchResult> fetchUpdates(Map<String, dynamic> input, {int cursor = 0, in
         final known = [for (final w in (e['w'] as List? ?? const [])) Map<String, dynamic>.from(w as Map)];
         // المصدران معًا، والعمل الموجود من المصدر الآخر لا يُعدّ جديدًا
         var got = <Map<String, dynamic>>[];
-        if (hasS && '${e['s'] ?? ''}'.isNotEmpty) got = mergeWorks(got, await StashDB.scenes('${e['s']}', maxPages: 1)).list;
-        if (hasT && '${e['t'] ?? ''}'.isNotEmpty) { try { got = mergeWorks(got, await TPDB.scenes('${e['t']}', maxPages: 1)).list; } on SourceError catch (x) { if (x.status == 401 || x.status == 403) errs.add(x.msg); } }
+        // كل سجلاتها (أسماؤها الأخرى أيضًا)
+        final ss = {'${e['s'] ?? ''}', ...((e['ss'] as List?) ?? const []).map((x) => '$x')}..remove('');
+        final ts = {'${e['t'] ?? ''}', ...((e['ts'] as List?) ?? const []).map((x) => '$x')}..remove('');
+        if (hasS) { for (final id in ss) { got = mergeWorks(got, await StashDB.scenes(id, maxPages: 1)).list; } }
+        if (hasT) { for (final id in ts) { try { got = mergeWorks(got, await TPDB.scenes(id, maxPages: 1)).list; } on SourceError catch (x) { if (x.status == 401 || x.status == 403) errs.add(x.msg); } } }
         final fresh = [for (final w in got) if (!keys.contains(wKeyOf(w)) && !known.any((k) => sameWork(k, w))) w];
         if (fresh.isNotEmpty) works['${e['id']}'] = fresh;
       }

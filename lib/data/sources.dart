@@ -26,8 +26,31 @@ class Candidate {
 }
 
 const _timeout = Duration(seconds: 20);
+http.Client _pool = http.Client();
 /// عميل HTTP قابل للاستبدال في الاختبارات.
-http.Client sourceClient = http.Client();
+http.Client sourceClient = _pool;
+
+/// إرسال طلب لمصدر رسمي مع إعادة المحاولة:
+/// - انقطاع الاتصال (Connection reset / مهلة / فشل اتصال): يحدث غالبًا حين يُعاد استخدام اتصال قديم أغلقه الخادم أو iOS
+///   بعد بقاء التطبيق في الخلفية ⇒ اتصال جديد ومحاولة أخرى (3 محاولات).
+/// - 429 (طلبات كثيرة) و5xx: انتظار متزايد ثم محاولة أخرى.
+Future<http.Response> sendWithRetry(String source, Future<http.Response> Function(http.Client c) send) async {
+  Object? last;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await Future<void>.delayed(Duration(milliseconds: 700 * attempt * attempt));
+    try {
+      final r = await send(sourceClient).timeout(_timeout);
+      if ((r.statusCode == 429 || r.statusCode >= 500) && attempt < 2) { last = r; continue; }
+      return r;
+    } on SourceError { rethrow; }
+    catch (e) {
+      last = e;
+      if (identical(sourceClient, _pool)) { try { _pool.close(); } catch (_) {} _pool = http.Client(); sourceClient = _pool; }   // اتصال جديد بدل القديم المقطوع
+    }
+  }
+  if (last is http.Response) return last;
+  throw SourceError('تعذّر الاتصال بـ $source (انقطع الاتصال أو الشبكة ضعيفة) — تحقّق من الإنترنت وحاول مجددًا');
+}
 
 // ===================== StashDB (GraphQL الرسمي) =====================
 class StashDB {
@@ -35,7 +58,7 @@ class StashDB {
   static Future<Map<String, dynamic>> q(String query, [Map<String, dynamic>? vars, String? keyOverride]) async {
     final key = keyOverride ?? await ApiKeys.get(ApiKeys.stash);
     if (key.isEmpty) throw SourceError('أضف مفتاح StashDB من «المزيد»');
-    final r = await sourceClient.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'ApiKey': key}, body: jsonEncode({'query': query, 'variables': vars ?? {}})).timeout(_timeout);
+    final r = await sendWithRetry('StashDB', (c) => c.post(Uri.parse(url), headers: {'Content-Type': 'application/json', 'ApiKey': key}, body: jsonEncode({'query': query, 'variables': vars ?? {}})));
     if (r.statusCode == 401 || r.statusCode == 403) throw SourceError('مفتاح StashDB غير صالح', r.statusCode);
     final j = jsonDecode(utf8.decode(r.bodyBytes));
     if (r.statusCode != 200 && (j is! Map || j['data'] == null)) throw SourceError('StashDB: خطأ ${r.statusCode}', (r.statusCode == 400 || r.statusCode == 422) ? -1 : r.statusCode);
@@ -151,7 +174,7 @@ class TPDB {
   static Future<Map<String, dynamic>> get(String path, [String? keyOverride]) async {
     final key = keyOverride ?? await ApiKeys.get(ApiKeys.tpdb);
     if (key.isEmpty) throw SourceError('أضف مفتاح ThePornDB من «المزيد»');
-    final r = await sourceClient.get(Uri.parse('$base$path'), headers: {'Authorization': 'Bearer $key', 'Accept': 'application/json'}).timeout(_timeout);
+    final r = await sendWithRetry('ThePornDB', (c) => c.get(Uri.parse('$base$path'), headers: {'Authorization': 'Bearer $key', 'Accept': 'application/json'}));
     if (r.statusCode == 401 || r.statusCode == 403) throw SourceError('مفتاح ThePornDB غير صالح', r.statusCode);
     if (r.statusCode == 429) throw SourceError('ThePornDB: طلبات كثيرة، حاول بعد قليل', 429);
     if (r.statusCode != 200) throw SourceError('ThePornDB: خطأ ${r.statusCode}', r.statusCode);

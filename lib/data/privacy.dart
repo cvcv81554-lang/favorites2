@@ -41,7 +41,7 @@ class Privacy {
 
   static Future<bool> bioAvailable() async { if (kIsWeb) return false; try { return await _auth.isDeviceSupported() && await _auth.canCheckBiometrics; } catch (_) { return false; } }
   static Future<bool> bioUnlock() async {
-    try { return await _auth.authenticate(localizedReason: 'افتحي مكتبتك الخاصة', biometricOnly: false, persistAcrossBackgrounding: true); } catch (_) { return false; }
+    try { return await _auth.authenticate(localizedReason: 'افتح مكتبتك الخاصة', biometricOnly: false, persistAcrossBackgrounding: true); } catch (_) { return false; }
   }
 
   /// هل الجهاز تلفاز (Android TV: ميزة leanback)؟

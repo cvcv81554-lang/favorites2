@@ -69,7 +69,7 @@ bool isLanHost(String h) => RegExp(r'^(192\.168\.\d{1,3}|10\.\d{1,3}\.\d{1,3}|17
 /// الجوال: يرسل المكتبة للشاشة. يقبل عناوين الشبكة المحلية فقط.
 Future<String> pushToTv({required String host, required String code, required String json}) async {
   final h = host.trim();
-  if (!isLanHost(h)) throw ArgumentError('أدخلي عنوان الشاشة كما يظهر عليها (مثل 192.168.1.20:8787)');
+  if (!isLanHost(h)) throw ArgumentError('أدخل عنوان الشاشة كما يظهر عليها (مثل 192.168.1.20:8787)');
   final c = HttpClient()..connectionTimeout = const Duration(seconds: 8);
   try {
     final req = await c.postUrl(Uri.parse('http://${h.contains(':') ? h : '$h:8787'}/v1/push'));

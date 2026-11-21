@@ -22,12 +22,12 @@ class ToolsScreen extends ConsumerWidget {
     final unrated = lib.where((p) => p.rating == 0).length;
     final tools = <(IconData, String, String, Widget Function())>[
       (Icons.playlist_add_check_rounded, 'قوائمي', '${ref.watch(listsProvider).value?.length ?? 0} قائمة', () => const ListsScreen()),
-      (Icons.sports_mma_rounded, 'المواجهة', 'اختاري الأفضل بين اثنتين — ترتيب Elo', () => const DuelScreen()),
+      (Icons.sports_mma_rounded, 'المواجهة', 'اختر الأفضل بين اثنتين — ترتيب Elo', () => const DuelScreen()),
       (Icons.leaderboard_rounded, 'المستويات', 'S · A · B · C · D', () => const TierScreen()),
       (Icons.star_half_rounded, 'جلسة تقييم', '$unrated بلا تقييم', () => const RateSession()),
-      (Icons.bookmark_add_rounded, 'قائمة الأمنيات', 'أسماء تضيفينها لاحقًا', () => const WishScreen()),
+      (Icons.bookmark_add_rounded, 'قائمة الأمنيات', 'أسماء تضيفها لاحقًا', () => const WishScreen()),
       (Icons.task_alt_rounded, 'اكتمال المكتبة', 'ما ينقص كل سجل', () => const CompletenessScreen()),
-      (Icons.emoji_events_rounded, 'الإنجازات', 'مستويات تتقدمين فيها', () => const AchievementsScreen()),
+      (Icons.emoji_events_rounded, 'الإنجازات', 'مستويات تتقدم فيها', () => const AchievementsScreen()),
       (Icons.today_rounded, 'في مثل هذا اليوم', 'أعياد ميلاد ومشاهدات وإصدارات', () => const OnThisDayScreen()),
       (Icons.nightlife_rounded, 'مزاج الليلة', 'اقتراح عمل حسب وقتك ومزاجك', () => const MoodScreen()),
     ];
@@ -67,7 +67,7 @@ class ListsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('قوائمي')),
       floatingActionButton: FloatingActionButton(onPressed: () async { final n = await askName(context, 'قائمة جديدة'); if (n != null && n.trim().isNotEmpty) ref.read(listsProvider.notifier).add(n); }, child: const Icon(Icons.add_rounded)),
-      body: ls.isEmpty ? const EmptyState(title: 'لا قوائم بعد', body: 'أنشئي قوائم مثل «الأفضل» أو «للمراجعة»، ثم أضيفي إليها من صفحة أي ممثلة.')
+      body: ls.isEmpty ? const EmptyState(title: 'لا قوائم بعد', body: 'أنشئ قوائم مثل «الأفضل» أو «للمراجعة»، ثم أضف إليها من صفحة أي ممثلة.')
         : ListView(padding: const EdgeInsets.all(S.s4), children: [for (final l in ls) () {
             final members = lib.where((p) => p.lists.contains(l.id)).toList();
             return Card(child: ListTile(
@@ -122,13 +122,13 @@ class _DuelState extends ConsumerState<DuelScreen> {
     if (_pair == null && pool.length >= 2) _next(pool);
     final board = [...pool]..sort((a, b) => eloOf(b).compareTo(eloOf(a)));
     return Scaffold(appBar: AppBar(title: const Text('المواجهة'), actions: [TextButton(onPressed: () => setState(() => _board = !_board), child: Text(_board ? 'العب' : 'الترتيب'))]),
-      body: pool.length < 2 ? const EmptyState(title: 'تحتاجين ممثلتين بصور على الأقل', body: '')
+      body: pool.length < 2 ? const EmptyState(title: 'تحتاج ممثلتين بصور على الأقل', body: '')
         : _board ? ListView.builder(itemCount: min(100, board.length), itemBuilder: (c, i) => ListTile(
             leading: Text('${i + 1}', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 18)),
             title: Text(board[i].name), subtitle: Text('${duelsOf(board[i])} مواجهة · ${(board[i].raw['dw'] as num?) ?? 0} فوز', style: const TextStyle(color: C.muted)),
             trailing: Text('${eloOf(board[i]).round()}', style: const TextStyle(fontWeight: FontWeight.w700))))
         : Padding(padding: const EdgeInsets.all(S.s4), child: Column(children: [
-            const Text('اختاري المفضلة لديك', style: TextStyle(color: C.muted)), const SizedBox(height: S.s3),
+            const Text('اختر المفضلة لديك', style: TextStyle(color: C.muted)), const SizedBox(height: S.s3),
             Expanded(child: Row(children: [
               for (final (w, l) in [(_pair!.$1, _pair!.$2), (_pair!.$2, _pair!.$1)]) Expanded(child: Padding(padding: const EdgeInsets.all(S.s2), child: PosterCard(p: w, heroTag: 'duel-${w.id}', onTap: () => _vote(w, l)))),
             ])),
@@ -192,8 +192,8 @@ class WishScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = ref.watch(wishProvider).value ?? const <Map<String, dynamic>>[];
     return Scaffold(appBar: AppBar(title: const Text('قائمة الأمنيات')),
-      floatingActionButton: FloatingActionButton(onPressed: () async { final n = await askName(context, 'اسم تريدين إضافته لاحقًا'); if (n != null) ref.read(wishProvider.notifier).add(n); }, child: const Icon(Icons.add_rounded)),
-      body: l.isEmpty ? const EmptyState(title: 'لا أمنيات', body: 'سجّلي أسماء لتبحثي عنها لاحقًا. تُزال وحدها عند إضافتها للمكتبة.')
+      floatingActionButton: FloatingActionButton(onPressed: () async { final n = await askName(context, 'اسم تريد إضافته لاحقًا'); if (n != null) ref.read(wishProvider.notifier).add(n); }, child: const Icon(Icons.add_rounded)),
+      body: l.isEmpty ? const EmptyState(title: 'لا أمنيات', body: 'سجّل أسماء لتبحث عنها لاحقًا. تُزال وحدها عند إضافتها للمكتبة.')
         : ListView(children: [for (final e in l) ListTile(title: Text('${e['n']}'),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               IconButton(tooltip: 'بحث في المصادر', onPressed: () => context.push('/search?q=${Uri.encodeQueryComponent('${e['n']}')}'), icon: const Icon(Icons.travel_explore_rounded, color: C.gold)),
@@ -270,11 +270,11 @@ class OnThisDayScreen extends ConsumerWidget {
     final added = lib.where((p) { final d = DateTime.fromMillisecondsSinceEpoch(p.added); return d.month == n.month && d.day == n.day && d.year < n.year; }).toList();
     Widget sec(String t, List<Widget> c) => c.isEmpty ? const SizedBox.shrink() : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [SectionHeader(t), ...c]);
     final empty = bday.isEmpty && watched.isEmpty && released.isEmpty && added.isEmpty;
-    return Scaffold(appBar: AppBar(title: const Text('في مثل هذا اليوم')), body: empty ? const EmptyState(title: 'لا ذكريات اليوم', body: 'عودي غدًا — كلما كبرت مكتبتك كثرت الذكريات.') : ListView(children: [
+    return Scaffold(appBar: AppBar(title: const Text('في مثل هذا اليوم')), body: empty ? const EmptyState(title: 'لا ذكريات اليوم', body: 'عد غدًا — كلما كبرت مكتبتك كثرت الذكريات.') : ListView(children: [
       sec('🎂 أعياد ميلاد', [for (final p in bday) ListTile(title: Text(p.name), subtitle: Text('تكمل ${p.age} سنة', style: const TextStyle(color: C.muted)), onTap: () => context.push('/p/${p.id}'))]),
-      sec('👁 شاهدتِ في مثل هذا اليوم', [for (final g in watched) ListTile(title: Text(g.t), subtitle: Text('${g.wd.substring(0, 4)} · ${g.who.map((p) => p.name).join('، ')}', style: const TextStyle(color: C.muted)), onTap: () => showWorkSheet(context, ref, g.key))]),
+      sec('👁 شاهدت في مثل هذا اليوم', [for (final g in watched) ListTile(title: Text(g.t), subtitle: Text('${g.wd.substring(0, 4)} · ${g.who.map((p) => p.name).join('، ')}', style: const TextStyle(color: C.muted)), onTap: () => showWorkSheet(context, ref, g.key))]),
       sec('🎬 صدر في مثل هذا اليوم', [for (final g in released.take(30)) ListTile(title: Text(g.t), subtitle: Text(g.d.substring(0, 4), style: const TextStyle(color: C.muted)), onTap: () => showWorkSheet(context, ref, g.key))]),
-      sec('➕ أضفتِها في مثل هذا اليوم', [for (final p in added) ListTile(title: Text(p.name), subtitle: Text('${DateTime.fromMillisecondsSinceEpoch(p.added).year}', style: const TextStyle(color: C.muted)), onTap: () => context.push('/p/${p.id}'))]),
+      sec('➕ أضفتها في مثل هذا اليوم', [for (final p in added) ListTile(title: Text(p.name), subtitle: Text('${DateTime.fromMillisecondsSinceEpoch(p.added).year}', style: const TextStyle(color: C.muted)), onTap: () => context.push('/p/${p.id}'))]),
     ]));
   }
 }
@@ -311,7 +311,7 @@ class _MoodState extends ConsumerState<MoodScreen> {
         if (studios.isNotEmpty) DropdownButton<String>(value: _studio, underline: const SizedBox(), items: [const DropdownMenuItem(value: '', child: Text('كل الاستوديوهات')), for (final s in studios) DropdownMenuItem(value: s, child: Text(s))], onChanged: (v) => setState(() => _studio = v ?? '')),
       ]),
       SectionHeader('أفضل 3 لليلة', sub: '${scored.length} عمل مناسب'),
-      if (scored.isEmpty) const Text('لا أعمال تطابق — خففي الشروط.', style: TextStyle(color: C.muted)),
+      if (scored.isEmpty) const Text('لا أعمال تطابق — خفّف الشروط.', style: TextStyle(color: C.muted)),
       for (final (g, _, why) in scored.take(3)) Padding(padding: const EdgeInsets.only(bottom: S.s3), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SizedBox(height: 112, child: WorkCard(g: g)), if (why.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(why.join(' · '), style: const TextStyle(color: C.gold, fontSize: 12))),
       ])),

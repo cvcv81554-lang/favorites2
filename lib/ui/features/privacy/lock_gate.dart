@@ -89,7 +89,7 @@ class _LockScreenState extends State<_LockScreen> {
     if (await Privacy.checkPin(_pin)) { widget.onOk(); return; }
     {
       _fails++;
-      setState(() { _pin = ''; _err = 'رمز غير صحيح'; if (_fails >= 5) { _until = DateTime.now().add(Duration(seconds: 30 * (_fails - 4))); _err = 'محاولات كثيرة — انتظري ${30 * (_fails - 4)} ثانية'; } });
+      setState(() { _pin = ''; _err = 'رمز غير صحيح'; if (_fails >= 5) { _until = DateTime.now().add(Duration(seconds: 30 * (_fails - 4))); _err = 'محاولات كثيرة — انتظر ${30 * (_fails - 4)} ثانية'; } });
     }
   }
   @override
@@ -136,9 +136,9 @@ class PrivacySection extends ConsumerWidget {
       title: const Text('رمز جديد'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(controller: a, keyboardType: TextInputType.number, obscureText: true, maxLength: 8, decoration: const InputDecoration(labelText: 'الرمز (4–8 أرقام)')),
-        TextField(controller: b, keyboardType: TextInputType.number, obscureText: true, maxLength: 8, decoration: const InputDecoration(labelText: 'أعيدي الرمز')),
+        TextField(controller: b, keyboardType: TextInputType.number, obscureText: true, maxLength: 8, decoration: const InputDecoration(labelText: 'أعد الرمز')),
         if (err.isNotEmpty) Text(err, style: const TextStyle(color: C.danger)),
-        const Text('لا يمكن استرجاع الرمز إن نُسي — بياناتك تبقى، لكن ستحتاجين إعادة تثبيت أو نسخة احتياطية.', style: TextStyle(color: C.muted, fontSize: 12)),
+        const Text('لا يمكن استرجاع الرمز إن نُسي — بياناتك تبقى، لكن ستحتاج إعادة تثبيت أو نسخة احتياطية.', style: TextStyle(color: C.muted, fontSize: 12)),
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')), FilledButton(onPressed: () {
         if (!RegExp(r'^\d{4,8}$').hasMatch(a.text)) { set(() => err = '4 إلى 8 أرقام'); return; }

@@ -32,7 +32,7 @@ class RecCand {
 /// وزن ممثلة من مكتبتك كبذرة للاقتراح: التقييم + المفضلة + التصفح.
 double seedWeight(Performer p) => (p.rating / 5) + (p.fav ? .6 : 0) + min(.4, p.views * .05) + (p.tier == 'S' ? .3 : p.tier == 'A' ? .15 : 0);
 
-/// يرتّب المرشحات ويكتب أسبابًا مفهومة. [lib] مكتبتك (بعد البوابة)، [hidden] من أخفيتِها.
+/// يرتّب المرشحات ويكتب أسبابًا مفهومة. [lib] مكتبتك (بعد البوابة)، [hidden] من أخفيتها.
 List<RecCand> rankRecs(List<RecCand> pool, List<Performer> lib, {Set<String> hidden = const {}}) {
   final inLib = {for (final p in lib) if (p.stashId.isNotEmpty) p.stashId};
   final names = {for (final p in lib) norm(p.name)};
@@ -55,7 +55,7 @@ List<RecCand> rankRecs(List<RecCand> pool, List<Performer> lib, {Set<String> hid
       if (ws.isNotEmpty) 'عملت مع ${ws.take(2).map((id) => seedName[id]).join(' و')}${ws.length > 2 ? ' و${ws.length - 2} أخريات' : ''} من مكتبتك',
       if (ccShare >= .15) 'من ${c.country} مثل ${cc[c.country.toUpperCase()]} من مكتبتك',
       if (c.lanes.contains('debut') && c.careerStart != null) 'بدأت مسيرتها ${c.careerStart}',
-      if (ageFit > .7) 'قريبة من الفئة العمرية التي تفضّلينها',
+      if (ageFit > .7) 'قريبة من الفئة العمرية التي تفضّلها',
     ];
     out.add(c);
   }

@@ -39,7 +39,7 @@ class Studio extends AsyncNotifier<StudioState> {
     state = AsyncData(s.copy(busy: true, err: '', msg: 'بدء الاكتشاف…'));
     try {
       final n = await r.discover(lib, network: net, tpdb: tp, progress: (m) => state = AsyncData(s.copy(msg: m)));
-      state = AsyncData(s.copy(imgs: await r.all(), last: DateTime.now().millisecondsSinceEpoch, busy: false, msg: '', err: net || tp ? '' : 'أضيفت صور المشاهد فقط — أضيفي مفتاح StashDB أو ThePornDB لصور الممثلات.'));
+      state = AsyncData(s.copy(imgs: await r.all(), last: DateTime.now().millisecondsSinceEpoch, busy: false, msg: '', err: net || tp ? '' : 'أضيفت صور المشاهد فقط — أضف مفتاح StashDB أو ThePornDB لصور الممثلات.'));
       if (n == 0 && s.err.isEmpty) state = AsyncData(s.copy(err: 'لا صور جديدة الآن.'));
     } catch (e) { state = AsyncData(s.copy(busy: false, msg: '', err: '$e')); }
   }
@@ -58,7 +58,7 @@ final smartAlbums = <String, (String, bool Function(StudioImg))>{
   'portrait': ('بورتريهات', (x) => x.kind == 'portrait'),
   'still': ('لقطات المشاهد', (x) => x.kind == 'still'),
   'stash': ('من StashDB', (x) => x.src == 'stash'),
-  'unseen': ('لم تريها بعد', (x) => x.seen == 0),
+  'unseen': ('لم تراها بعد', (x) => x.seen == 0),
   'liked': ('أعجبتني', (x) => x.like),
 };
 
@@ -66,7 +66,7 @@ final smartAlbums = <String, (String, bool Function(StudioImg))>{
 const studioTabs = <(String, IconData, String)>[
   ('جديد', Icons.fiber_new_rounded, 'صور أُضيفت منذ زيارتك السابقة، الأحدث أولًا'),
   ('الكل', Icons.photo_library_rounded, 'كل صور ممثلات مكتبتك · الأعلى دقة أولًا'),
-  ('المفضلة', Icons.favorite_rounded, 'الصور التي ضغطتِ عليها ♥ (في العارض أو بالضغط المطوّل)'),
+  ('المفضلة', Icons.favorite_rounded, 'الصور التي ضغطت عليها ♥ (في العارض أو بالضغط المطوّل)'),
   ('الألبومات', Icons.collections_rounded, 'مجموعات تتكوّن وحدها حسب الدقة والنوع والمصدر'),
   ('الممثلات', Icons.people_alt_rounded, 'صور كل ممثلة في مكان واحد'),
 ];
@@ -104,7 +104,7 @@ class _StudioScreenState extends ConsumerState<StudioScreen> {
       SizedBox(width: double.infinity, child: FilledButton.icon(
         onPressed: st.busy ? null : n.discover,
         icon: st.busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.travel_explore_rounded),
-        label: Text(st.busy ? st.msg : 'ابحثي عن صور جديدة'))),
+        label: Text(st.busy ? st.msg : 'ابحث عن صور جديدة'))),
       if (!st.busy && st.last > 0) Padding(padding: const EdgeInsets.only(top: 4), child: Text('آخر بحث: ${_ago(st.last)} · من StashDB وThePornDB وصور المشاهد', style: const TextStyle(color: C.muted, fontSize: 12))),
       if (st.err.isNotEmpty) Padding(padding: const EdgeInsets.only(top: S.s2), child: Row(children: [
         Expanded(child: Text(st.err, style: const TextStyle(color: C.muted))),
@@ -115,7 +115,7 @@ class _StudioScreenState extends ConsumerState<StudioScreen> {
     if (imgs.isEmpty && !st.busy) {
       return Scaffold(body: SafeArea(bottom: false, child: CustomScrollView(slivers: [header,
         SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'معرضك الخاص فارغ',
-          body: 'اضغطي «ابحثي عن صور جديدة» ليجمع الاستديو صور ممثلات مكتبتك (من StashDB وThePornDB) وصور مشاهدهن.\n\nبعدها تجدين:\n• جديد — ما أُضيف منذ زيارتك\n• المفضلة — ما أعجبك ♥\n• الألبومات والممثلات — ترتيب تلقائي\n\nكل الصور تبقى على جهازك.')),
+          body: 'اضغط «ابحث عن صور جديدة» ليجمع الاستديو صور ممثلات مكتبتك (من StashDB وThePornDB) وصور مشاهدهن.\n\nبعدها تجد:\n• جديد — ما أُضيف منذ زيارتك\n• المفضلة — ما أعجبك ♥\n• الألبومات والممثلات — ترتيب تلقائي\n\nكل الصور تبقى على جهازك.')),
       ])));
     }
 
@@ -130,9 +130,9 @@ class _StudioScreenState extends ConsumerState<StudioScreen> {
     final hint = SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, 4, S.s4, S.s2), child: Text(studioTabs[tab].$3, style: const TextStyle(color: C.muted, fontSize: 12.5))));
 
     final body = switch (tab) {
-      0 => fresh.isEmpty ? _empty('لا جديد منذ زيارتك', 'اضغطي «ابحثي عن صور جديدة» أعلاه. ستظهر هنا الصور التي تُضاف من الآن.') : _grid(context, fresh, lib, 'new'),
+      0 => fresh.isEmpty ? _empty('لا جديد منذ زيارتك', 'اضغط «ابحث عن صور جديدة» أعلاه. ستظهر هنا الصور التي تُضاف من الآن.') : _grid(context, fresh, lib, 'new'),
       1 => _grid(context, all, lib, 'all'),
-      2 => liked.isEmpty ? _empty('لا صور مفضلة بعد', 'افتحي أي صورة واضغطي ♥ أعلى الشاشة، أو اضغطي مطولًا على الصورة في الشبكة.') : _grid(context, liked, lib, 'liked'),
+      2 => liked.isEmpty ? _empty('لا صور مفضلة بعد', 'افتح أي صورة واضغط ♥ أعلى الشاشة، أو اضغط مطولًا على الصورة في الشبكة.') : _grid(context, liked, lib, 'liked'),
       3 => _albums(context, imgs, lib),
       _ => _performers(context, byP, lib),
     };
