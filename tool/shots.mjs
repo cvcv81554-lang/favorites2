@@ -30,10 +30,11 @@ await gen.close();
 
 const errors = [];
 async function shoot(vp, name, path, extra) {
+  const [hp, hq] = path.split('?');
   const ctx = await browser.newContext({ viewport: vp, deviceScaleFactor: vp.width < 500 ? 2 : 1, locale: 'ar' });
   await ctx.route('https://img.test/**', r => { const k = r.request().url().split('/').pop().replace('.png', ''); r.fulfill({ status: 200, contentType: 'image/png', body: imgs[k] || imgs.p0 }); });
   const page = await ctx.newPage(); page.on('pageerror', e => errors.push(name + ': ' + e.message)); page.on('console', m => { if (m.type() === 'error') errors.push(name + ': ' + m.text()); });
-  await page.goto(base + '?demo=1#' + path); await page.waitForTimeout(3500);
+  await page.goto(base + '?demo=1&qa=1' + (hq ? '&' + hq : '') + '#' + hp); await page.waitForTimeout(3500);
   if (extra) { await extra(page); await page.waitForTimeout(1200); }
   await page.screenshot({ path: join(out, name + '.png') });
   await ctx.close();
@@ -45,6 +46,10 @@ await shoot(phone, 'phone-03-detail', '/p/demo-4');
 await shoot(phone, 'phone-04-detail-scroll', '/p/demo-4', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 700); });
 await shoot(phone, 'phone-05-more', '/more');
 await shoot(phone, 'phone-06-works', '/works');
+await shoot(phone, 'phone-06b-works-scroll', '/works', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 500); });
+for (const [t, n] of [[6, 'performers'], [7, 'studios'], [5, 'diary'], [1, 'watch']]) {
+  await shoot(phone, 'phone-06c-works-' + n, '/works?wt=' + t, async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 560); });
+}
 await shoot(phone, 'phone-07-discover', '/discover');
 await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 900); });
 await shoot(desk, 'desk-05-discover', '/discover');

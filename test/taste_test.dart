@@ -44,4 +44,27 @@ void main() {
     expect(w.values.every((v) => v >= -1), isTrue);
     expect(similarity(p, f, fb: w).score < base, isTrue);
   });
+
+  test('الوزن: المفضلة الأعلى تقييمًا تزن أكثر وتغيّر الغالب', () {
+    final feats = [perf(hair: 'BLONDE'), perf(hair: 'BRUNETTE'), perf(hair: 'BRUNETTE')].map(featuresOf).toList();
+    expect(buildProfile(feats).cats['hair_color']!.top.key, 'BRUNETTE');
+    final w = [tasteWeight(fav: true, rating: 5), tasteWeight(fav: false, rating: 0), tasteWeight(fav: false, rating: 0)];
+    final p = buildProfile(feats, weights: w);
+    expect(w[0] > w[1], isTrue);
+    expect(p.cats['hair_color']!.shareOf('BLONDE'), closeTo(w[0] / (w[0] + w[1] + w[2]), 1e-9));
+    expect(p.cats['hair_color']!.n, 3);
+  });
+
+  test('ضبط التحليل: الحقل المستبعد لا يدخل الملف ولا التشابه', () {
+    final feats = [perf(), perf(), perf()].map(featuresOf).toList();
+    final p = buildProfile(feats, ignore: {'hair_color', 'height'});
+    expect(p.cats.containsKey('hair_color'), isFalse); expect(p.nums.containsKey('height'), isFalse);
+    expect(similarity(p, featuresOf(perf(hair: 'RED'))).diff.any((d) => d.contains('الشعر')), isFalse);
+  });
+
+  test('النشاط: معتزلة/نشطة من سنوات المسيرة الموثّقة فقط', () {
+    expect(featuresOf({'career_start_year': 2015, 'career_end_year': 2020})['active'], 'no');
+    expect(featuresOf({'career_start_year': 2015})['active'], 'yes');
+    expect(featuresOf({}).containsKey('active'), isFalse);
+  });
 }

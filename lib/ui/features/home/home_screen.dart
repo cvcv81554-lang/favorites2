@@ -27,7 +27,10 @@ class HomeScreen extends ConsumerWidget {
           }
           final day = DateTime.now(); final seed = day.year * 1000 + day.month * 40 + day.day;
           final favs = all.where((p) => p.fav).toList();
-          final pool = (favs.isNotEmpty ? favs : all).where((p) => p.cover.isNotEmpty).toList();
+          final base = favs.isNotEmpty ? favs : all;
+          // نجمة اليوم: من لها صور كاملة أولًا (لا الصورة المصغرة وحدها) — لتظهر بملء الشاشة بوضوح
+          var pool = base.where((p) => p.photos.isNotEmpty).toList();
+          if (pool.isEmpty) pool = base.where((p) => p.cover.isNotEmpty).toList();
           final spot = pool.isEmpty ? all.first : pool[Random(seed).nextInt(pool.length)];
           final recent = [...all]..sort((a, b) => b.added.compareTo(a.added));
           final top = all.where((p) => p.rating >= 4).toList()..sort((a, b) => b.rating.compareTo(a.rating));

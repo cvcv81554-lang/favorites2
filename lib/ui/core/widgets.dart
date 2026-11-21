@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../data/platform/db_factory.dart';
 import '../../data/privacy.dart';
 import '../../domain/performer.dart';
+import 'fit_resize.dart';
 import 'net_image.dart';
 import 'theme.dart';
 
@@ -30,36 +31,44 @@ class Photo extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(valueListenable: blurPhotos, builder: (c, blur, _) {
     final w = LayoutBuilder(builder: (c, box) {
-      int? cw = cacheWidth;
-      if (!full && cw == null && box.maxWidth.isFinite && box.maxWidth > 0) {
-        final dpr = MediaQuery.devicePixelRatioOf(c);
-        // fit:cover قد يكبّر بحسب الارتفاع أيضًا ⇒ نأخذ الأكبر من العرض والارتفاع، بحد 2400 بكسل
-        final side = box.maxHeight.isFinite ? (box.maxWidth > box.maxHeight * .75 ? box.maxWidth : box.maxHeight * .75) : box.maxWidth;
-        cw = (side * dpr).clamp(64, 2400).round();
+      final dpr = MediaQuery.devicePixelRatioOf(c);
+      _Size? sz;
+      if (!full) {
+        if (cacheWidth != null) { sz = _Size(cacheWidth!, null); }
+        else if (box.maxWidth.isFinite && box.maxWidth > 0 && box.maxHeight.isFinite && box.maxHeight > 0) {
+          sz = _Size((box.maxWidth * dpr).round(), (box.maxHeight * dpr).round());   // المقاس يُحسب من أبعاد الصورة الحقيقية (FitResize)
+        } else if (box.maxWidth.isFinite && box.maxWidth > 0) { sz = _Size((box.maxWidth * dpr).clamp(64, 2400).round(), null); }
       }
-      return _build(c, [src, ...fallbacks.where((x) => x.isNotEmpty && x != src)], 0, full ? null : cw);
+      return _build(c, [src, ...fallbacks.where((x) => x.isNotEmpty && x != src)], 0, sz);
     });
     return blur ? ClipRect(child: ImageFiltered(imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: w)) : w;
   });
 
-  Widget _build(BuildContext context, List<String> srcs, int i, int? cw) {
-    Widget next() => i + 1 < srcs.length ? _build(context, srcs, i + 1, cw) : Initials(name);
+  ImageProvider _sized(ImageProvider<Object> p, _Size? sz) {
+    if (sz == null) return p;
+    if (sz.h == null) return ResizeImage.resizeIfNeeded(sz.w, null, p);
+    return FitResize(p, sz.w, sz.h!, cover: fit == BoxFit.cover || fit == BoxFit.fill || fit == BoxFit.fitHeight || fit == BoxFit.fitWidth);
+  }
+
+  Widget _build(BuildContext context, List<String> srcs, int i, _Size? sz) {
+    Widget next() => i + 1 < srcs.length ? _build(context, srcs, i + 1, sz) : Initials(name);
     if (i >= srcs.length || srcs[i].isEmpty) return next();
     final s = srcs[i];
+    ImageProvider<Object>? prov;
     if (s.startsWith('data:image/')) {
-      try { return Image.memory(base64Decode(s.substring(s.indexOf(',') + 1)), fit: fit, alignment: alignment, cacheWidth: cw, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next()); }
-      catch (_) { return next(); }
+      try { prov = MemoryImage(base64Decode(s.substring(s.indexOf(',') + 1))); } catch (_) { return next(); }
+    } else if (s.startsWith('file:')) {
+      prov = fileImageProvider(s);
+    } else if (s.startsWith('https://') || s.startsWith('http://')) {
+      prov = netImage(s);
     }
-    if (s.startsWith('file:')) {
-      final prov = fileImageProvider(s);
-      if (prov == null) return next();
-      return Image(image: ResizeImage.resizeIfNeeded(cw, null, prov), fit: fit, alignment: alignment, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next());
-    }
-    if (!s.startsWith('https://') && !s.startsWith('http://')) return next();
-    return Image(image: ResizeImage.resizeIfNeeded(cw, null, netImage(s)), fit: fit, alignment: alignment, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next(),
+    if (prov == null) return next();
+    return Image(image: _sized(prov, sz), fit: fit, alignment: alignment, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next(),
         frameBuilder: (c, child, frame, sync) => sync || frame != null ? child : const Shimmer());
   }
 }
+
+class _Size { const _Size(this.w, this.h); final int w; final int? h; }
 
 class Initials extends StatelessWidget {
   const Initials(this.name, {super.key});
