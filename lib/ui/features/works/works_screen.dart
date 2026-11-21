@@ -25,24 +25,32 @@ const workTabs = <WTab, (String, IconData, String)>{
   WTab.seen: ('شاهدتها', Icons.check_circle_rounded, 'كل ما علّمتِه «شاهدته»'),
   WTab.top: ('الأعلى تقييمًا', Icons.star_rounded, 'أعمال قيّمتِها 4 نجوم فأكثر'),
   WTab.diary: ('يومياتي', Icons.menu_book_rounded, 'سجل مشاهداتك بالتاريخ، شهرًا بشهر'),
-  WTab.performers: ('حسب الممثلة', Icons.people_alt_rounded, 'تقدّمك في أعمال كل ممثلة'),
+  WTab.performers: ('حسب الممثلة', Icons.people_alt_rounded, 'اضغطي ممثلة لعرض أعمالها فقط · مطوّلًا لفتح ملفها'),
   WTab.studios: ('الاستوديوهات', Icons.business_rounded, 'الأعمال مجمّعة حسب الاستوديو'),
 };
 
 enum WSort { date, rating, title }
 
 class _WState {
-  final WTab tab; final String q; final String wl; final bool grid; final WSort sort; final String studio;
-  const _WState(this.tab, this.q, [this.wl = '', this.grid = true, this.sort = WSort.date, this.studio = '']);
-  _WState copy({WTab? tab, String? q, String? wl, bool? grid, WSort? sort, String? studio}) => _WState(tab ?? this.tab, q ?? this.q, wl ?? this.wl, grid ?? this.grid, sort ?? this.sort, studio ?? this.studio);
+  final WTab tab; final String q; final String wl; final bool grid; final WSort sort; final String studio; final String pid;   // pid: أعمال ممثلة واحدة
+  const _WState(this.tab, this.q, [this.wl = '', this.grid = true, this.sort = WSort.date, this.studio = '', this.pid = '']);
+  _WState copy({WTab? tab, String? q, String? wl, bool? grid, WSort? sort, String? studio, String? pid}) => _WState(tab ?? this.tab, q ?? this.q, wl ?? this.wl, grid ?? this.grid, sort ?? this.sort, studio ?? this.studio, pid ?? this.pid);
 }
 class _WN extends Notifier<_WState> {
   @override _WState build() {
     // لقطات الويب التجريبية فقط (?demo=1&wt=رقم): فتح تبويب مباشرة
     final wt = kIsWeb && Uri.base.queryParameters['demo'] == '1' ? int.tryParse(Uri.base.queryParameters['wt'] ?? '') : null;
-    return _WState(wt != null && wt >= 0 && wt < WTab.values.length ? WTab.values[wt] : WTab.recent, '');
+    final wp = kIsWeb && Uri.base.queryParameters['demo'] == '1' ? (Uri.base.queryParameters['wp'] ?? '') : '';
+    return _WState(wt != null && wt >= 0 && wt < WTab.values.length ? WTab.values[wt] : WTab.recent, '', '', true, WSort.date, '', wp);
   } void set(_WState s) => state = s; }
 final _wProvider = NotifierProvider<_WN, _WState>(_WN.new);
+
+/// فتح قسم الأعمال على أعمال ممثلة معينة (من صفحتها أو من أي مكان).
+void showPerformerWorks(BuildContext context, WidgetRef ref, String pid) {
+  final st = ref.read(_wProvider);
+  ref.read(_wProvider.notifier).set(st.copy(pid: pid, q: '', studio: '', wl: ''));
+  context.go('/works');
+}
 
 /// تحديد متعدد للأعمال (ضغط مطوّل) لإجراء جماعي.
 class _SelN extends Notifier<Set<String>> { @override Set<String> build() => {}; void toggle(String k) => state = state.contains(k) ? ({...state}..remove(k)) : {...state, k}; void clear() => state = {}; }
@@ -63,8 +71,10 @@ class WorksScreen extends ConsumerWidget {
     if (st.wl.isNotEmpty) l = l.where((g) => g.ls.contains(st.wl));
     if (st.studio.isNotEmpty) l = l.where((g) => norm(g.s) == norm(st.studio));
     if (q.isNotEmpty) l = l.where((g) => norm('${g.t} ${g.s} ${g.who.map((p) => p.name).join(' ')}').contains(q));
+    final focus = st.pid.isEmpty ? null : ref.watch(libraryProvider).value?.where((p) => p.id == st.pid).firstOrNull;
+    if (focus != null) l = l.where((g) => g.who.any((p) => p.id == focus.id));
     final released = l.where((g) => !g.isUpcoming && g.date.isNotEmpty && g.date.compareTo(t0) <= 0);
-    var list = switch (st.tab) {
+    var list = focus != null ? (l.toList()..sort((a, b) => b.date.compareTo(a.date))) : switch (st.tab) {
       WTab.recent => released.toList(),
       WTab.watch => (l.where((g) => g.q && !g.seen).toList()..sort((a, b) => b.a.compareTo(a.a))),
       WTab.upcoming => (l.where((g) => g.isUpcoming).toList()..sort((a, b) => a.date.compareTo(b.date))),
@@ -73,7 +83,7 @@ class WorksScreen extends ConsumerWidget {
       WTab.diary => (l.where((g) => g.seen && g.wd.isNotEmpty).toList()..sort((a, b) => b.wd.compareTo(a.wd))),
       _ => l.toList(),
     };
-    if (st.tab == WTab.recent || (st.sort != WSort.date && st.tab != WTab.upcoming && st.tab != WTab.diary)) {
+    if (focus == null && st.tab == WTab.recent || (st.sort != WSort.date && st.tab != WTab.upcoming && st.tab != WTab.diary)) {
       switch (st.sort) {
         case WSort.date: list.sort((a, b) => b.date.compareTo(a.date));
         case WSort.rating: list.sort((a, b) => b.r != a.r ? b.r.compareTo(a.r) : b.date.compareTo(a.date));
@@ -112,7 +122,7 @@ class WorksScreen extends ConsumerWidget {
     final lists = ref.watch(wlistsProvider).value ?? const <NamedList>[];
     final tools = SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, 2, S.s4, S.s2), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        Expanded(child: Text(workTabs[st.tab]!.$3, style: const TextStyle(color: C.muted, fontSize: 12.5))),
+        Expanded(child: Text(focus != null ? 'كل أعمالها، الأحدث أولًا (والقادمة)' : workTabs[st.tab]!.$3, style: const TextStyle(color: C.muted, fontSize: 12.5))),
         if (st.tab.index <= WTab.top.index && st.tab != WTab.upcoming) PopupMenuButton<WSort>(tooltip: 'الترتيب', initialValue: st.sort, onSelected: (v) => n.set(st.copy(sort: v)), icon: const Icon(Icons.sort_rounded),
           itemBuilder: (_) => const [PopupMenuItem(value: WSort.date, child: Text('الأحدث صدورًا')), PopupMenuItem(value: WSort.rating, child: Text('تقييمي')), PopupMenuItem(value: WSort.title, child: Text('العنوان'))]),
         if (st.tab.index <= WTab.top.index) IconButton(tooltip: st.grid ? 'عرض قائمة' : 'عرض شبكة', onPressed: () => n.set(st.copy(grid: !st.grid)), icon: Icon(st.grid ? Icons.view_list_rounded : Icons.grid_view_rounded)),
@@ -124,15 +134,15 @@ class WorksScreen extends ConsumerWidget {
     ])));
 
     final Widget body;
-    if (st.tab == WTab.performers) {
-      body = _performers(context, l.toList());
-    } else if (st.tab == WTab.studios) {
+    if (focus == null && st.tab == WTab.performers) {
+      body = _performers(context, l.toList(), (pid) => n.set(st.copy(pid: pid)));
+    } else if (focus == null && st.tab == WTab.studios) {
       body = _studios(l.toList(), (s) => n.set(st.copy(tab: WTab.recent, studio: s)));
     } else if (list.isEmpty) {
       body = SliverFillRemaining(hasScrollBody: false, child: EmptyState(
         title: switch (st.tab) { WTab.watch => 'قائمة المشاهدة فارغة', WTab.upcoming => 'لا إصدارات قادمة', WTab.diary => 'لا يوميات بعد', WTab.top => 'لا أعمال مقيّمة 4+', WTab.seen => 'لم تعلّمي شيئًا «شاهدته» بعد', _ => q.isNotEmpty ? 'لا نتائج' : 'لا أعمال هنا' },
         body: switch (st.tab) { WTab.watch => 'اضغطي على أي عمل ثم 🔖 «للمشاهدة» ليظهر هنا.', WTab.diary => 'كل عمل تعلّمينه «شاهدته» يُسجَّل هنا بتاريخه.', WTab.upcoming => 'الإصدارات القادمة تظهر هنا تلقائيًا عند تحديث أعمال ممثلاتك.', _ => q.isNotEmpty ? 'جرّبي كلمة أخرى.' : 'أضيفي أعمالًا من صفحة الممثلة أو حدّثيها من المصدر.' }));
-    } else if (st.tab == WTab.diary) {
+    } else if (focus == null && st.tab == WTab.diary) {
       body = SliverList.builder(itemCount: list.length, itemBuilder: (c, i) {
         final g = list[i]; final head = i == 0 || list[i - 1].wd.substring(0, 7) != g.wd.substring(0, 7);
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -178,19 +188,21 @@ class WorksScreen extends ConsumerWidget {
             backgroundColor: const WidgetStatePropertyAll(C.surface), elevation: const WidgetStatePropertyAll(0), side: const WidgetStatePropertyAll(BorderSide(color: C.line2))),
           if (sel.isEmpty) const Padding(padding: EdgeInsets.only(top: 6), child: Text('اضغطي على عمل لتفاصيله · اضغطي مطوّلًا لتحديد عدة أعمال', style: TextStyle(color: C.muted, fontSize: 12))),
         ]))),
-        tabsBar, tools, body,
+        if (focus != null) SliverToBoxAdapter(child: _FocusHeader(p: focus, total: list.length, seen: list.where((g) => g.seen).length, upcoming: list.where((g) => g.isUpcoming).length, onClose: () => n.set(st.copy(pid: '')))),
+        if (focus == null) tabsBar,
+        tools, body,
         const SliverToBoxAdapter(child: SizedBox(height: 140)),
       ])));
   }
 
   /// تقدّم كل ممثلة: شاهدتِ كم من أعمالها.
-  static Widget _performers(BuildContext context, List<WorkGroup> l) {
+  static Widget _performers(BuildContext context, List<WorkGroup> l, void Function(String) open) {
     final by = <String, (Performer, int, int)>{};
     for (final g in l) { for (final p in g.who) { final e = by[p.id]; by[p.id] = (p, (e?.$2 ?? 0) + 1, (e?.$3 ?? 0) + (g.seen ? 1 : 0)); } }
     final rows = by.values.toList()..sort((a, b) => b.$2.compareTo(a.$2));
     if (rows.isEmpty) return const SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'لا أعمال بعد', body: 'أضيفي أعمالًا من صفحة الممثلة.'));
     return SliverList.builder(itemCount: rows.length, itemBuilder: (c, i) { final (p, total, seen) = rows[i];
-      return InkWell(onTap: () => c.push('/p/${p.id}'), child: Padding(padding: const EdgeInsets.symmetric(horizontal: S.s4, vertical: S.s2), child: Row(children: [
+      return InkWell(onTap: () => open(p.id), onLongPress: () => c.push('/p/${p.id}'), child: Padding(padding: const EdgeInsets.symmetric(horizontal: S.s4, vertical: S.s2), child: Row(children: [
         SizedBox(width: 48, height: 48, child: ClipOval(child: Photo(p.cover, name: p.name, fallbacks: p.coverFallbacks))),
         const SizedBox(width: S.s3),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -211,7 +223,7 @@ class WorksScreen extends ConsumerWidget {
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 220, mainAxisSpacing: S.s3, crossAxisSpacing: S.s3, childAspectRatio: 1.15),
       itemBuilder: (c, i) { final (name, total, seen, img) = rows[i];
         return Semantics(button: true, label: name, child: InkWell(borderRadius: BorderRadius.circular(S.rLg), onTap: () => open(name), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: SizedBox(width: double.infinity, child: Photo(img, name: name, alignment: Alignment.center)))),
+          Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: SizedBox(width: double.infinity, child: WorkImage(img, name: name)))),
           const SizedBox(height: 4),
           Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
           Text('$total عمل · شاهدتِ $seen', style: const TextStyle(color: C.muted, fontSize: 12)),
@@ -235,7 +247,7 @@ class _NextUp extends ConsumerWidget {
   final WorkGroup g;
   @override
   Widget build(BuildContext context, WidgetRef ref) => GestureDetector(onTap: () => showWorkSheet(context, ref, g.key), child: AspectRatio(aspectRatio: 16 / 8, child: ClipRRect(borderRadius: BorderRadius.circular(S.rXl), child: Stack(fit: StackFit.expand, children: [
-    Photo(g.p, name: g.s.isNotEmpty ? g.s : g.t, alignment: Alignment.center),
+    WorkImage(g.p, name: g.s.isNotEmpty ? g.s : g.t),
     const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x00000000), Color(0xE60A0810)], stops: [.35, 1]))),
     Positioned(left: S.s3, right: S.s3, bottom: S.s3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(g.q ? '🔖 شاهدي التالي' : '▶ جديد لم تشاهديه', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 12.5)),
@@ -261,7 +273,7 @@ class WorkPoster extends ConsumerWidget {
       child: Container(decoration: BoxDecoration(color: on ? C.gold.withValues(alpha: .18) : C.surface, borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: on ? C.gold : C.line)), clipBehavior: Clip.antiAlias,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           AspectRatio(aspectRatio: 16 / 9, child: Stack(fit: StackFit.expand, children: [
-            Photo(g.p, name: g.s.isNotEmpty ? g.s : g.t, alignment: Alignment.center),
+            WorkImage(g.p, name: g.s.isNotEmpty ? g.s : g.t),
             if (g.seen) Positioned(top: 6, right: 6, child: badge(const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.check_rounded, size: 13, color: Colors.white), SizedBox(width: 2), Text('شاهدته', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700))]), C.ok))
             else if (g.q) Positioned(top: 6, right: 6, child: badge(const Icon(Icons.bookmark_rounded, size: 14, color: Color(0xFF1A1208)), C.gold)),
             if (g.isUpcoming && du != null && du >= 0) Positioned(bottom: 6, right: 6, child: badge(Text(du == 0 ? 'اليوم' : 'بعد $du يوم', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)), C.rose)),
@@ -291,7 +303,7 @@ class WorkCard extends ConsumerWidget {
       onLongPress: () => ref.read(_selProvider.notifier).toggle(g.key),
       child: Row(children: [
         SizedBox(width: 150, height: double.infinity, child: Stack(fit: StackFit.expand, children: [
-          Photo(g.p, name: g.s.isNotEmpty ? g.s : g.t, alignment: Alignment.center),
+          WorkImage(g.p, name: g.s.isNotEmpty ? g.s : g.t),
           if (g.seen) const Positioned(top: 6, right: 6, child: Icon(Icons.check_circle_rounded, color: C.ok, size: 22)),
           if (g.isUpcoming && du != null && du >= 0) Positioned(bottom: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: C.rose, borderRadius: BorderRadius.circular(99)), child: Text(du == 0 ? 'اليوم' : 'بعد $du يوم', style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)))),
         ])),
@@ -343,7 +355,7 @@ class _WorkSheetState extends ConsumerState<_WorkSheet> {
     if (g == null) return const SizedBox(height: 200, child: Center(child: Text('العمل غير موجود')));
     if (!_init) { _init = true; _note.text = g.n; }
     return SingleChildScrollView(padding: EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s5 + MediaQuery.viewInsetsOf(context).bottom), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (g.p.isNotEmpty) ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: AspectRatio(aspectRatio: 16 / 9, child: Photo(g.p, name: g.t))),
+      if (g.p.isNotEmpty) ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: AspectRatio(aspectRatio: 16 / 9, child: WorkImage(g.p, name: g.t))),
       const SizedBox(height: S.s3),
       Text(g.t, style: Theme.of(context).textTheme.titleLarge),
       Text([if (g.s.isNotEmpty) g.s, if (g.date.isNotEmpty) g.d.isNotEmpty ? g.d : g.y, if (g.du > 0) '${g.du} د'].join(' · '), style: const TextStyle(color: C.muted)),
@@ -396,4 +408,23 @@ class _WorkSheetState extends ConsumerState<_WorkSheet> {
       }, icon: const Icon(Icons.delete_outline_rounded, color: C.danger), label: const Text('حذف العمل', style: TextStyle(color: C.danger)))),
     ]));
   }
+}
+
+/// رأس «أعمال ممثلة»: صورتها واسمها وأرقامها + فتح ملفها + إغلاق الفلتر.
+class _FocusHeader extends StatelessWidget {
+  const _FocusHeader({required this.p, required this.total, required this.seen, required this.upcoming, required this.onClose});
+  final Performer p; final int total, seen, upcoming; final VoidCallback onClose;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s3, S.s4, S.s2), child: Container(
+    padding: const EdgeInsets.all(S.s3), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: C.gold.withValues(alpha: .5))),
+    child: Row(children: [
+      SizedBox(width: 52, height: 52, child: ClipOval(child: Photo(p.cover, name: p.name, fallbacks: p.coverFallbacks))),
+      const SizedBox(width: S.s3),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('أعمال ${p.name}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        Text(['$total عمل', 'شاهدتِ $seen', if (upcoming > 0) '$upcoming قادم'].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12.5)),
+      ])),
+      IconButton(tooltip: 'ملفها', onPressed: () => context.push('/p/${p.id}'), icon: const Icon(Icons.person_rounded)),
+      IconButton(tooltip: 'كل الأعمال', onPressed: onClose, icon: const Icon(Icons.close_rounded)),
+    ])));
 }

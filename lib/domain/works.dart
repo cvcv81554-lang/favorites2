@@ -58,26 +58,93 @@ String? sceneIdOf(Map<String, dynamic> w) {
   return s.isNotEmpty ? 'is:$s' : p.isNotEmpty ? 'ip:$p' : null;
 }
 
-/// التوحيد عبر الممثلات:
-///  1) الأعمال ذات معرّف مشهد تُوحَّد بالمعرّف (مشهدان مختلفان بنفس العنوان والاستوديو لا يندمجان أبدًا).
-///  2) العمل بلا معرّف يُلحق بمجموعة معرّف **وحيدة** لها نفس العنوان والاستوديو، وإلا يُوحَّد بالعنوان والاستوديو.
+/// كل معرّفات العمل في المصادر الرسمية (قد يحمل الاثنين بعد الدمج).
+List<String> sceneIdsOf(Map<String, dynamic> w) {
+  final s = '${w['is'] ?? ''}', p = '${w['ip'] ?? ''}';
+  return [if (s.isNotEmpty) 'is:$s', if (p.isNotEmpty) 'ip:$p'];
+}
+
+/// تطبيع عنوان للمقارنة بين المصدرين (حروف وأرقام فقط).
+String normTitle(Object? s) => (s ?? '').toString().toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{N}]+', unicode: true), ' ').trim();
+String _compact(Object? s) => normTitle(s).replaceAll(' ', '');
+
+/// تعارض: نفس المصدر بمعرّفين مختلفين ⇒ عملان مختلفان حتمًا.
+bool idConflict(Map<String, dynamic> a, Map<String, dynamic> b) {
+  bool diff(String k) { final x = '${a[k] ?? ''}', y = '${b[k] ?? ''}'; return x.isNotEmpty && y.isNotEmpty && x != y; }
+  return diff('is') || diff('ip');
+}
+bool sharesId(Map<String, dynamic> a, Map<String, dynamic> b) { final x = sceneIdsOf(a).toSet(); return sceneIdsOf(b).any(x.contains); }
+
+int? _days(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final x = DateTime.tryParse('${a['d'] ?? ''}'), y = DateTime.tryParse('${b['d'] ?? ''}');
+  return x == null || y == null ? null : x.difference(y).inDays.abs();
+}
+
+/// نفس العمل؟ (للتوحيد بين StashDB وThePornDB والإدخال اليدوي)
+/// - معرّف مشترك ⇒ نعم. تعارض معرّف من نفس المصدر ⇒ لا.
+/// - وإلا: العنوان نفسه (بعد التطبيع) + الاستوديو متقارب (أو غائب) + التاريخ متقارب (±3 أيام) إن وُجد في الاثنين.
+bool sameWork(Map<String, dynamic> a, Map<String, dynamic> b) {
+  if (sharesId(a, b)) return true;
+  if (idConflict(a, b)) return false;
+  final ta = normTitle(a['t']); if (ta.isEmpty || ta != normTitle(b['t'])) return false;
+  final d = _days(a, b);
+  if (d != null && d > 3) return false;
+  final sa = _compact(a['s']), sb = _compact(b['s']);
+  final studioOk = sa.isEmpty || sb.isEmpty || sa == sb || sa.contains(sb) || sb.contains(sa);
+  return studioOk || d == 0;
+}
+
+/// التوحيد عبر الممثلات والمصدرين:
+///  1) المعرّفات المحمولة معًا في عمل واحد تُربط (is ↔ ip).
+///  2) مجموعات من مصدرين مختلفين بنفس العمل (العنوان/الاستوديو/التاريخ) تُربط إن لم يتعارض معرّفاهما.
+///  3) العمل بلا معرّف يُلحق بمجموعة **وحيدة** مطابقة، وإلا يُوحَّد بالعنوان والاستوديو.
 List<WorkGroup> groupWorks(Iterable<Performer> items) {
-  final map = <String, WorkGroup>{};
-  final byTitle = <String, Set<String>>{};   // wKey → مفاتيح مجموعات المعرّفات
-  final noId = <(Map<String, dynamic>, Performer, int)>[];
+  final parent = <String, String>{};
+  String find(String x) { var r = x; while (parent[r] != null && parent[r] != r) { r = parent[r]!; } var c = x; while (parent[c] != null && parent[c] != r) { final n = parent[c]!; parent[c] = r; c = n; } return r; }
+  final kinds = <String, Map<String, String>>{};   // الجذر ⇒ {is: id, ip: id}
+  void add(String x) { if (parent[x] == null) { parent[x] = x; kinds[x] = {x.substring(0, 2): x}; } }
+  bool union(String a, String b) {
+    var ra = find(a), rb = find(b); if (ra == rb) return true;
+    final ka = kinds[ra]!, kb = kinds[rb]!;
+    for (final k in ka.keys) { if (kb[k] != null && kb[k] != ka[k]) return false; }   // تعارض من نفس المصدر
+    if (ra.startsWith('ip:') && rb.startsWith('is:')) { final t = ra; ra = rb; rb = t; }   // جذر StashDB مفضّل (مفتاح ثابت)
+    parent[rb] = ra; kinds[ra] = {...kinds[rb]!, ...kinds[ra]!}; kinds.remove(rb);
+    return true;
+  }
+  final withId = <(Map<String, dynamic>, Performer, int)>[], noId = <(Map<String, dynamic>, Performer, int)>[];
   for (final it in items) {
     final ws = it.works;
     for (var i = 0; i < ws.length; i++) {
-      final wk = wKeyOf(ws[i]); if (wk == '|') continue;
-      final sid = sceneIdOf(ws[i]);
-      if (sid == null) { noId.add((ws[i], it, i)); continue; }
-      (map[sid] ??= WorkGroup(sid))._absorb(ws[i], it, i);
-      (byTitle[wk] ??= {}).add(sid);
+      if (wKeyOf(ws[i]) == '|') continue;
+      final ids = sceneIdsOf(ws[i]);
+      if (ids.isEmpty) { noId.add((ws[i], it, i)); continue; }
+      for (final x in ids) { add(x); }
+      for (final x in ids.skip(1)) { union(ids.first, x); }
+      withId.add((ws[i], it, i));
     }
   }
+  // 2) ربط المصدرين بالعنوان (داخل نفس العنوان المطبّع فقط)
+  final byT = <String, List<Map<String, dynamic>>>{};
+  for (final (w, _, _) in withId) { (byT[normTitle(w['t'])] ??= []).add(w); }
+  for (final l in byT.values) {
+    if (l.length < 2) continue;
+    for (var a = 0; a < l.length; a++) {
+      for (var b = a + 1; b < l.length; b++) {
+        if (find(sceneIdsOf(l[a]).first) != find(sceneIdsOf(l[b]).first) && sameWork(l[a], l[b])) union(sceneIdsOf(l[a]).first, sceneIdsOf(l[b]).first);
+      }
+    }
+  }
+  final map = <String, WorkGroup>{};
+  final reps = <String, List<(String, Map<String, dynamic>)>>{};   // العنوان ⇒ (الجذر، عمل ممثّل)
+  for (final (w, it, i) in withId) {
+    final k = find(sceneIdsOf(w).first);
+    (map[k] ??= WorkGroup(k))._absorb(w, it, i);
+    final l = reps[normTitle(w['t'])] ??= [];
+    if (!l.any((e) => e.$1 == k)) l.add((k, w));
+  }
   for (final (w, it, i) in noId) {
-    final wk = wKeyOf(w); final ids = byTitle[wk];
-    final k = (ids != null && ids.length == 1) ? ids.first : wk;
+    final m = (reps[normTitle(w['t'])] ?? const <(String, Map<String, dynamic>)>[]).where((e) => sameWork(e.$2, w)).map((e) => e.$1).toSet();
+    final k = m.length == 1 ? m.first : wKeyOf(w);
     (map[k] ??= WorkGroup(k))._absorb(w, it, i);
   }
   return map.values.toList();

@@ -3,7 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../data/images.dart';
+import '../../../data/dual_source.dart';
+import '../../../data/photo_hash.dart';
+import '../../../data/platform/db_factory.dart' show deletePhoto;
 import '../../../data/keys.dart';
 import '../../../data/sources.dart';
 import '../../../domain/age_gate.dart';
@@ -23,7 +25,7 @@ class SourceSearchScreen extends ConsumerStatefulWidget {
 
 class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
   late final _q = TextEditingController(text: widget.initial);
-  List<Candidate> _res = []; int _hidden = 0; String _err = ''; bool _busy = false; final Set<String> _adding = {};
+  List<Candidate> _res = []; final Map<String, Candidate> _twin = {}; int _hidden = 0; String _err = ''; bool _busy = false; final Set<String> _adding = {};
 
   @override void initState() { super.initState(); if (widget.initial.isNotEmpty) WidgetsBinding.instance.addPostFrameCallback((_) => _search()); }
   @override void dispose() { _q.dispose(); super.dispose(); }
@@ -40,7 +42,16 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
     ]);
     final adults = all.where((c) => c.adult).toList();   // ← البوابة قبل أي صورة
     if (!mounted) return;
-    setState(() { _res = adults; _hidden = all.length - adults.length; _busy = false; _err = errs.join(' · '); });
+    // نفس الممثلة في المصدرين ⇒ نتيجة واحدة (مطابقة محافظة: الاسم + تاريخ الميلاد)
+    final ss = adults.where((c) => c.source == 'stash').toList(), ts = adults.where((c) => c.source == 'tpdb').toList();
+    final used = <Candidate>{}; final res = <Candidate>[]; _twin.clear();
+    for (final s in ss) {
+      final m = ts.where((t) => !used.contains(t) && samePerson(s, t)).toList();
+      if (m.length == 1) { used.add(m.first); _twin['stash:${s.id}'] = m.first; }
+      res.add(s);
+    }
+    res.addAll(ts.where((t) => !used.contains(t)));
+    setState(() { _res = res; _hidden = all.length - adults.length; _busy = false; _err = errs.join(' · '); });
   }
 
   Future<void> _add(Candidate c) async {
@@ -69,10 +80,11 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
         if (_err.isNotEmpty) Padding(padding: const EdgeInsets.symmetric(horizontal: S.s4), child: Text(_err, style: const TextStyle(color: C.danger))),
         if (_hidden > 0) Padding(padding: const EdgeInsets.all(S.s2), child: Text('أُخفيت $_hidden نتيجة: عمر أقل من 18 أو تاريخ ميلاد غير صالح.', style: const TextStyle(color: C.muted, fontSize: 12))),
         Expanded(child: _res.isEmpty && !_busy
-          ? const EmptyState(title: 'ابحث في المصادر الرسمية', body: 'StashDB وThePornDB فقط. تُضاف الممثلة مع صورتها وأعمالها، وتُحفظ الصورة على جهازك.')
+          ? const EmptyState(title: 'ابحثي في المصدرين معًا', body: 'StashDB وThePornDB معًا: تُجمع المعلومات والأعمال والصور من الاثنين وتُحذف المكررات، وتُحفظ الصور على جهازك.')
           : ListView.separated(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, 120), itemCount: _res.length, separatorBuilder: (_, _) => const SizedBox(height: S.s2), itemBuilder: (c, i) {
               final r = _res[i]; final a = sdAge(r.birth).age;
-              final have = lib.any((p) => (r.source == 'stash' ? p.stashId : p.pdbId) == r.id);
+              final tw = _twin['${r.source}:${r.id}'];
+              final have = lib.any((p) => (r.source == 'stash' ? p.stashId : p.pdbId) == r.id || (tw != null && p.pdbId == tw.id));
               final busy = _adding.contains('${r.source}:${r.id}');
               return Card(child: Padding(padding: const EdgeInsets.all(S.s2), child: Row(children: [
                 ClipRRect(borderRadius: BorderRadius.circular(S.rSm), child: SizedBox(width: 72, height: 96, child: Photo(r.image, name: r.name, cacheWidth: 200))),
@@ -80,7 +92,7 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(r.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                   if (r.aliases.isNotEmpty) Text(r.aliases, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 12)),
-                  Text([if (a != null) '$a سنة' else 'العمر غير معروف', if (r.country.isNotEmpty) r.country, r.source == 'stash' ? 'StashDB' : 'ThePornDB'].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12.5)),
+                  Text([if (a != null) '$a سنة' else 'العمر غير معروف', if (r.country.isNotEmpty) r.country, tw != null ? 'StashDB + ThePornDB' : r.source == 'stash' ? 'StashDB' : 'ThePornDB'].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12.5)),
                 ])),
                 busy ? const SizedBox(width: 40, height: 40, child: Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2)))
                   : have && widget.linkTo == null ? const Icon(Icons.check_circle_rounded, color: C.ok)
@@ -92,46 +104,85 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
   }
 }
 
-/// تحديث أعمال ممثلة من مصادرها المرتبطة (بوابة +18 قبل الطلب).
-Future<String> refreshFromSources(WidgetRef ref, Performer p) async {
+/// تحديث ممثلة من المصدرين معًا (معلومات + أعمال + صور، بلا تكرار). بوابة +18 قبل أي طلب صور/أعمال.
+Future<String> refreshFromSources(WidgetRef ref, Performer p, {void Function(String)? progress}) async {
   if (p.isMinor) return 'مرفوض: العمر أقل من 18';
-  if (p.stashId.isEmpty && p.pdbId.isEmpty) return 'غير مرتبطة بمصدر — استخدم «ربط بمصدر»';
-  var works = p.works; var added = 0; final errs = <String>[];
-  if (p.stashId.isNotEmpty) { try { final m = mergeWorks(works, await StashDB.scenes(p.stashId)); works = m.list; added += m.added; } catch (e) { errs.add('$e'); } }
-  if (p.pdbId.isNotEmpty) { try { final m = mergeWorks(works, await TPDB.scenes(p.pdbId)); works = m.list; added += m.added; } catch (e) { errs.add('$e'); } }
-  final cur = ref.read(libraryProvider.notifier).items.where((x) => x.id == p.id).firstOrNull ?? p;   // السجل الحالي لا اللقطة القديمة
-  await ref.read(libraryProvider.notifier).upsert(cur.copyWith({'works': mergeWorks(cur.works, works).list, 'worksAt': DateTime.now().millisecondsSinceEpoch}));
-  return errs.isEmpty ? (added > 0 ? 'أُضيف $added عمل جديد' : 'لا أعمال جديدة') : '${added > 0 ? 'أُضيف $added عمل · ' : ''}${errs.join(' · ')}';
+  if (p.stashId.isEmpty && p.pdbId.isEmpty) return 'غير مرتبطة بمصدر — استخدمي «ربط بمصدر»';
+  return (await syncFromSources(ref, existing: p, progress: progress)).$2;
 }
 
-/// إضافة مرشحة من مصدر رسمي إلى المكتبة (أو ربطها بسجل موجود): الصورة تُنزّل بدقتها الأصلية، والأعمال تُدمج.
-/// البوابة: يُرفض أي سجل تاريخه يقول أقل من 18. يعيد (السجل المحفوظ، رسالة).
-Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {String? linkTo, List<String> extraImages = const []}) async {
-  if (!c.adult) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
+/// إضافة مرشحة من أي مصدر — تُجلب من المصدرين معًا وتُدمج بلا تكرار. يعيد (السجل المحفوظ، رسالة).
+Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {String? linkTo, List<String> extraImages = const [], void Function(String)? progress}) =>
+  syncFromSources(ref, c: c, linkTo: linkTo, extraImages: extraImages, progress: progress);
+
+/// المسار الموحّد للإضافة والربط والتحديث في كل التطبيق:
+/// 1) يحدد المعرّفين (StashDB وThePornDB) ويبحث عن الممثلة نفسها في المصدر الآخر بمطابقة محافظة (الاسم + تاريخ الميلاد).
+/// 2) يجلب من الاثنين: المعلومات ⇒ بوابة +18 ⇒ الأعمال والصور.
+/// 3) يدمج بلا تكرار: الأعمال (بالمعرّف ثم العنوان/الاستوديو/التاريخ)، والصور (بالرابط والبايتات والبصمة المرئية — الأوضح يبقى)،
+///    والمعلومات تملأ الناقص فقط — لا تُستبدل بياناتك ولا تُحذف تقييماتك أو مشاهداتك أو ملاحظاتك.
+Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing, Candidate? c, String? linkTo, List<String> extraImages = const [], void Function(String)? progress}) async {
+  if (c != null && !c.adult) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
   final lib = ref.read(libraryProvider.notifier);
-  final existing = linkTo != null ? lib.items.where((p) => p.id == linkTo).firstOrNull
-      : lib.items.where((p) => (c.source == 'stash' ? p.stashId : p.pdbId) == c.id || norm(p.name) == norm(c.name)).firstOrNull;
-  final id = existing?.id ?? const Uuid().v4();
-  final photos = [...?existing?.photos];
-  for (final u in [c.image, ...extraImages].where((u) => u.isNotEmpty).toSet().take(6)) {
-    if (photos.length >= 30) break;
-    photos.add(await downloadPhoto(u, '${id}_${DateTime.now().microsecondsSinceEpoch}'));
+  Performer? base = existing ?? (linkTo != null ? lib.items.where((p) => p.id == linkTo).firstOrNull : null);
+  var sid = base?.stashId ?? '', pid = base?.pdbId ?? '';
+  if (c != null) { if (c.source == 'stash') { sid = c.id; } else { pid = c.id; } }
+  Performer? match() => lib.items.where((p) => (sid.isNotEmpty && p.stashId == sid) || (pid.isNotEmpty && p.pdbId == pid)).firstOrNull;
+  base ??= match() ?? (c == null ? null : lib.items.where((p) => norm(p.name) == norm(c.name) && (p.birth.isEmpty || c.birth.isEmpty || p.birth.startsWith(c.birth.length >= 10 ? c.birth.substring(0, 10) : c.birth))).firstOrNull);
+  if (base != null) { if (sid.isEmpty) sid = base.stashId; if (pid.isEmpty) pid = base.pdbId; }
+  if (base != null && base.isMinor) return (null, 'مرفوض: العمر أقل من 18');
+  // المصدر الآخر
+  if (sid.isEmpty || pid.isEmpty) {
+    progress?.call('البحث عنها في ${sid.isEmpty ? 'StashDB' : 'ThePornDB'}…');
+    final probe = c ?? Candidate(source: sid.isNotEmpty ? 'stash' : 'tpdb', id: sid.isNotEmpty ? sid : pid, name: base?.name ?? '', aliases: base?.aliases ?? '', birth: base?.birth ?? '', country: base?.country ?? '');
+    final cp = probe.name.isEmpty ? null : await findCounterpart(probe);
+    if (cp != null) { if (cp.source == 'stash') { if (sid.isEmpty) sid = cp.id; } else { if (pid.isEmpty) pid = cp.id; } }
+    base ??= match();
   }
-  var works = existing?.works ?? <Map<String, dynamic>>[];
-  var added = 0;
-  try {
-    final sc = c.source == 'stash' ? await StashDB.scenes(c.id) : await TPDB.scenes(c.id);
-    final m = mergeWorks(works, sc); works = m.list; added = m.added;
-  } catch (_) {}
-  final base = existing?.raw ?? {'id': id, 'added': DateTime.now().millisecondsSinceEpoch, 'tags': [], 'lists': [], 'source': c.source == 'stash' ? 'StashDB' : 'ThePornDB'};
+  if (sid.isEmpty && pid.isEmpty) return (null, 'غير مرتبطة بمصدر');
+  progress?.call('جلب المعلومات والأعمال والصور من المصدرين…');
+  final d = await fetchBoth(stashId: sid, pdbId: pid);
+  if (d.minor) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
+  if (d.sources.isEmpty) return (null, d.errors.isEmpty ? 'أضيفي مفتاح StashDB أو ThePornDB من «المزيد»' : d.errors.join(' · '));
+  final id = base?.id ?? const Uuid().v4();
+  // الصور: إزالة المكرر الموجود ثم إضافة الجديد بلا تكرار
+  progress?.call('الصور (بلا تكرار)…');
+  final (clean, removedP) = await dedupePhotos(base?.photos ?? const []);
+  final imgs = [if (c != null && c.image.isNotEmpty) c.image, ...extraImages, ...d.images];
+  final (photos0, addedP, dupP, replaced) = await addPhotosNoDup(clean, imgs, id, maxNew: base == null ? 6 : 4);
+  // الأعمال: إزالة المكرر الموجود ثم دمج المصدرين
+  final w0 = dedupeWorks(base?.works ?? const []);
+  final m = mergeWorks(w0.list, d.works);
   // السجل الحالي بعد انتهاء الجلب (قد يكون عُدّل أثناءه) — لا يُستبدل بلقطة قديمة
-  final now0 = existing == null ? null : lib.items.where((x) => x.id == existing.id).firstOrNull;
-  if (now0 != null) { works = mergeWorks(now0.works, works).list; for (final ph in now0.photos) { if (!photos.contains(ph)) photos.insert(0, ph); } }
-  final p = Performer({...(now0?.raw ?? base), 'name': now0?.name ?? existing?.name ?? c.name, if ((existing?.aliases ?? '').isEmpty && c.aliases.isNotEmpty) 'aliases': c.aliases,
-    if ((existing?.birth ?? '').isEmpty && c.birth.isNotEmpty) 'birth': c.birth, if ((existing?.country ?? '').isEmpty && c.country.isNotEmpty) 'country': c.country,
-    if (c.height != null) 'height': c.height, if (c.careerStart != null) 'cs': c.careerStart,
-    c.source == 'stash' ? 'stashId' : 'pdbId': c.id, 'photos': photos, 'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch, 'updated': DateTime.now().millisecondsSinceEpoch});
+  final now0 = base == null ? null : lib.items.where((x) => x.id == base!.id).firstOrNull;
+  var works = m.list; final photos = [...photos0];
+  if (now0 != null) {
+    works = mergeWorks(dedupeWorks(now0.works).list, works).list;
+    for (final ph in now0.photos) { if (!photos.contains(ph) && !removedP.contains(ph) && !replaced.contains(ph)) photos.add(ph); }
+  }
+  final cur = now0 ?? base;
+  String keep(String k, String v) => '${cur?.raw[k] ?? ''}'.isNotEmpty ? '${cur!.raw[k]}' : v;
+  final aliases = <String>{for (final a in '${cur?.aliases ?? ''}, ${d.info['aliases'] ?? ''}${c != null ? ', ${c.aliases}' : ''}'.split(',')) if (a.trim().isNotEmpty && norm(a) != norm(cur?.name ?? c?.name ?? '')) a.trim()}.join(', ');
+  final p = Performer({
+    ...(cur?.raw ?? {'id': id, 'added': DateTime.now().millisecondsSinceEpoch, 'tags': [], 'lists': [], 'source': d.sources.join(' + ')}),
+    'name': cur?.name ?? c?.name ?? '',
+    if (aliases.isNotEmpty) 'aliases': aliases,
+    'birth': keep('birth', '${d.info['birth'] ?? c?.birth ?? ''}'),
+    'country': keep('country', '${d.info['country'] ?? c?.country ?? ''}'),
+    if (cur?.raw['height'] == null && (d.info['height'] ?? c?.height) != null) 'height': d.info['height'] ?? c?.height,
+    if (cur?.raw['cs'] == null && (d.info['cs'] ?? c?.careerStart) != null) 'cs': d.info['cs'] ?? c?.careerStart,
+    if (sid.isNotEmpty) 'stashId': sid, if (pid.isNotEmpty) 'pdbId': pid,
+    'photos': photos, 'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch, 'updated': DateTime.now().millisecondsSinceEpoch,
+  });
   if (p.isMinor) return (null, 'رُفضت: العمر أقل من 18');
   await lib.upsert(p);
-  return (p, '${existing == null ? 'أُضيفت' : 'رُبطت'} ${p.name} · $added عمل');
+  for (final r in {...removedP, ...replaced}) { if (!photos.contains(r)) { try { await deletePhoto(r); } catch (_) {} } }   // ملفات المكرر فقط
+  final dups = w0.removed + removedP.length + dupP;
+  return (p, [
+    '${cur == null ? 'أُضيفت' : 'حُدّثت'} ${p.name}',
+    d.sources.join(' + '),
+    '${m.added} عمل جديد',
+    if (addedP > 0) '$addedP صورة',
+    if (dups > 0) 'حُذف $dups مكرر',
+    if (d.errors.isNotEmpty) d.errors.join(' · '),
+  ].join(' · '));
 }

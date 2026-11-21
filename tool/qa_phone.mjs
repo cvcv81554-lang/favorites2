@@ -45,7 +45,7 @@ const page = await ctx.newPage(); const errors = [], log = [];
 page.on('pageerror', e => errors.push('pageerror: ' + e.message)); page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text().slice(0, 300)); });
 const shot = async n => { await page.waitForTimeout(700); await page.screenshot({ path: join(out, n + '.png') }); };
 const btn = name => page.getByRole('button', { name }).first();
-const nav = name => page.getByRole('tab', { name }).or(page.getByRole('button', { name })).first();
+const nav = n => { const name = new RegExp('^(' + n.source + ')$'); return page.getByRole('tab', { name }).or(page.getByRole('button', { name })).first(); };   // اسم التبويب بالضبط (لا أزرار تحتوي الكلمة)
 const t0 = Date.now();
 await page.goto(base + '?qa=1'); await page.waitForTimeout(4000);
 log.push('open: ' + (Date.now() - t0) + 'ms'); await shot('01-empty');

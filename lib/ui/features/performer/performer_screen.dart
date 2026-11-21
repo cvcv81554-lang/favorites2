@@ -63,12 +63,12 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               if (v == 'link') { context.push('/search?q=${Uri.encodeQueryComponent(p.name)}&link=${p.id}'); return; }
               if (v == 'sync') {
                 final m = ScaffoldMessenger.of(context);
-                m.showSnackBar(const SnackBar(content: Text('جارٍ التحديث من المصادر…')));
+                m.showSnackBar(const SnackBar(duration: Duration(minutes: 2), content: Text('جارٍ التحديث من StashDB وThePornDB…')));
                 final r = await refreshFromSources(ref, p);
                 m.hideCurrentSnackBar(); m.showSnackBar(SnackBar(content: Text(r)));
               }
             }, itemBuilder: (_) => [
-              if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty) const PopupMenuItem(value: 'sync', child: Text('تحديث الأعمال من المصادر')),
+              if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty) const PopupMenuItem(value: 'sync', child: Text('تحديث من المصدرين (معلومات · أعمال · صور)')),
               const PopupMenuItem(value: 'photos', child: Text('إضافة صور من الجهاز')),
               const PopupMenuItem(value: 'lists', child: Text('القوائم')),
               PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
@@ -111,6 +111,8 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
           if (p.notes.isNotEmpty) ...[const SizedBox(height: S.s4), Container(width: double.infinity, padding: const EdgeInsets.all(S.s4), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)), child: Text(p.notes, style: const TextStyle(height: 1.7)))],
         ]))),
         SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدتِ ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
+        if (works.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s2), child: Align(alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(onPressed: () => showPerformerWorks(context, ref, p.id), icon: const Icon(Icons.grid_view_rounded, size: 18), label: const Text('عرض أعمالها في قسم الأعمال (بالصور والفلاتر)'))))),
         if (works.isEmpty) const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(S.s4), child: Text('لا أعمال مسجلة بعد.', style: TextStyle(color: C.muted)))),
         SliverList.builder(itemCount: works.length, itemBuilder: (c, i) => _WorkTile(w: works[i].$1, pid: p.id, idx: works[i].$2)),
         const SliverToBoxAdapter(child: SizedBox(height: 120)),
@@ -172,7 +174,7 @@ class _WorkTile extends ConsumerWidget {
     return ListTile(
       onTap: () { final k = groupKeyOf(ref.read(worksProvider), pid, idx); if (k != null) showWorkSheet(context, ref, k); },
       contentPadding: const EdgeInsets.symmetric(horizontal: S.s4, vertical: 2),
-      leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 72, height: 44, child: Photo((w['p'] ?? '').toString(), name: (w['s'] ?? w['t'] ?? '').toString(), alignment: Alignment.center))),
+      leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 104, height: 60, child: WorkImage((w['p'] ?? '').toString(), name: (w['s'] ?? w['t'] ?? '').toString()))),
       title: Text((w['t'] ?? '').toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(sub, style: const TextStyle(color: C.muted, fontSize: 12.5)),
       trailing: upc ? const Chip(label: Text('قادم'), visualDensity: VisualDensity.compact) : seen ? const Icon(Icons.check_circle_rounded, color: C.ok) : (w['q'] == 1 ? const Icon(Icons.bookmark_rounded, color: C.gold) : null),

@@ -10,7 +10,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../data/background.dart';
 import '../../../data/backup.dart';
 import '../../../data/keys.dart';
+import '../../../data/photo_hash.dart';
+import '../../../data/platform/db_factory.dart' show deletePhoto;
 import '../../../data/sources.dart';
+import '../../../domain/performer.dart';
+import '../sources/source_search.dart' show syncFromSources;
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -115,6 +119,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
       _group('المصادر الرسمية', [
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
+        const _DualTools(),
       ]),
       _group('الخصوصية', [
         const PrivacySection(),
@@ -245,4 +250,69 @@ class _BgSectionState extends ConsumerState<_BgSection> {
       const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('الإشعار عام بلا أسماء ولا صور. أندرويد: كل ~12 ساعة عند توفر الشروط. آيفون: النظام يقرر التوقيت حسب استخدامك والبطارية، ولا يعمل إن أغلقتِ التطبيق قسرًا من قائمة التطبيقات.', style: TextStyle(color: C.muted, fontSize: 12, height: 1.5))),
     ]);
   }
+}
+
+/// أدوات المصدرين لكل المكتبة: إزالة التكرار (محليًا بلا إنترنت)، وربط/تحديث كل الممثلات من StashDB وThePornDB معًا.
+class _DualTools extends ConsumerStatefulWidget {
+  const _DualTools();
+  @override ConsumerState<_DualTools> createState() => _DualToolsState();
+}
+class _DualToolsState extends ConsumerState<_DualTools> {
+  String _msg = ''; bool _busy = false, _stop = false;
+
+  Future<void> _dedupe() async {
+    setState(() { _busy = true; _msg = 'فحص التكرار…'; });
+    final lib = ref.read(libraryProvider.notifier);
+    var works = 0, photos = 0; final changed = <Performer>[]; final drop = <String>[];
+    final all = lib.items; var i = 0;
+    for (final p in all) {
+      i++; if (i % 10 == 0 && mounted) setState(() => _msg = 'فحص $i / ${all.length}…');
+      final w = dedupeWorks(p.works);
+      final (ph, rm) = await dedupePhotos(p.photos);
+      if (w.removed > 0 || rm.isNotEmpty) {
+        works += w.removed; photos += rm.length;
+        changed.add(p.copyWith({'works': w.list, 'photos': ph}));
+        drop.addAll(rm.where((r) => !ph.contains(r)));
+      }
+    }
+    if (changed.isNotEmpty) await lib.upsertMany(changed);
+    for (final r in drop) { try { await deletePhoto(r); } catch (_) {} }
+    if (mounted) setState(() { _busy = false; _msg = works + photos == 0 ? 'لا تكرار في مكتبتك ✓' : 'حُذف $works عمل مكرر و$photos صورة مكررة من ${changed.length} ممثلة (بلا فقد لتقييماتك أو مشاهداتك)'; });
+  }
+
+  Future<void> _syncAll() async {
+    final lib = ref.read(libraryProvider.notifier);
+    final l = lib.items.where((p) => !p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty)).toList();
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(title: const Text('تحديث كل المكتبة من المصدرين؟'),
+      content: Text('${l.length} ممثلة مرتبطة. لكل واحدة: البحث عنها في المصدر الآخر، ثم جلب المعلومات والأعمال والصور من الاثنين وحذف المكرر. قد يستغرق وقتًا ويستهلك بيانات — يُفضّل على Wi-Fi. يمكنك الإيقاف في أي لحظة.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ابدئي'))]));
+    if (ok != true) return;
+    setState(() { _busy = true; _stop = false; });
+    var done = 0, linked = 0, fails = 0;
+    for (final p in l) {
+      if (_stop || !mounted) break;
+      setState(() => _msg = '${done + 1} / ${l.length} · ${p.name}');
+      final hadBoth = p.stashId.isNotEmpty && p.pdbId.isNotEmpty;
+      try {
+        final r = await syncFromSources(ref, existing: lib.items.where((x) => x.id == p.id).firstOrNull ?? p);
+        if (r.$1 == null) { fails++; } else if (!hadBoth && r.$1!.stashId.isNotEmpty && r.$1!.pdbId.isNotEmpty) { linked++; }
+      } catch (_) { fails++; }
+      done++;
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+    }
+    if (mounted) setState(() { _busy = false; _msg = 'حُدّثت $done ممثلة · رُبطت $linked بالمصدر الثاني${fails > 0 ? ' · تعذّرت $fails' : ''}${_stop ? ' (أُوقف)' : ''}'; });
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    ListTile(leading: const Icon(Icons.cleaning_services_rounded, color: C.gold), title: const Text('إزالة التكرار من المكتبة'),
+      subtitle: const Text('الأعمال المكررة (نفس العمل من المصدرين) والصور المتطابقة أو المتقاربة — على جهازك بلا إنترنت', style: TextStyle(color: C.muted)), onTap: _busy ? null : _dedupe),
+    ListTile(leading: const Icon(Icons.merge_rounded, color: C.gold), title: const Text('تحديث كل المكتبة من المصدرين'),
+      subtitle: const Text('ربط كل ممثلة بـ StashDB وThePornDB معًا وجلب المعلومات والأعمال والصور بلا تكرار', style: TextStyle(color: C.muted)), onTap: _busy ? null : _syncAll,
+      trailing: _busy ? TextButton(onPressed: () => setState(() => _stop = true), child: const Text('إيقاف')) : null),
+    if (_msg.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 12), child: Row(children: [
+      if (_busy) const Padding(padding: EdgeInsetsDirectional.only(end: 8), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
+      Expanded(child: Text(_msg, style: const TextStyle(color: C.muted, fontSize: 12.5))),
+    ])),
+  ]);
 }

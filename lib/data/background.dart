@@ -13,6 +13,7 @@ import 'keys.dart';
 import 'platform/db_factory.dart';
 import 'sources.dart';
 import 'studio_repo.dart';
+import '../domain/works.dart' show sameWork;
 
 /// التحديث في الخلفية والإشعارات — يعمل والتطبيق مغلق:
 ///  - أندرويد: WorkManager (كل ~12 ساعة حسب الشروط: شبكة، بطارية غير منخفضة).
@@ -53,7 +54,8 @@ Future<bool> requestNotifPermission() async {
 /// مدخلات مهمة الخلفية (من التطبيق). البوابة: البالغات فقط.
 Map<String, dynamic> buildBgInput(BgSettings s, List<Performer> lib, Set<String> studioIds) => {
   'v': 1, 'settings': s.toJson(),
-  'ids': [for (final p in lib) if (!p.isMinor && p.stashId.isNotEmpty) {'id': p.id, 's': p.stashId, 'k': [for (final w in p.works) wKeyOf(w)]}],
+  'ids': [for (final p in lib) if (!p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty)) {'id': p.id, 's': p.stashId, 't': p.pdbId, 'k': [for (final w in p.works) wKeyOf(w)],
+    'w': [for (final w in p.works) {for (final k in const ['t', 's', 'd', 'is', 'ip']) if ('${w[k] ?? ''}'.isNotEmpty) k: w[k]}]}],
   'img': studioIds.toList(),
 };
 
@@ -73,7 +75,8 @@ Future<FetchResult> fetchUpdates(Map<String, dynamic> input, {int cursor = 0, in
   final ids = [for (final e in (input['ids'] as List? ?? const [])) Map<String, dynamic>.from(e as Map)];
   final known = {...((input['img'] as List?) ?? const []).cast<String>()};
   final works = <String, List<Map<String, dynamic>>>{}; final imgs = <StudioImg>[]; final errs = <String>[];
-  if (ids.isEmpty || !await ApiKeys.has(ApiKeys.stash)) return FetchResult(works, imgs, ['لا ممثلات مرتبطة أو لا مفتاح StashDB'], 0);
+  final hasS = await ApiKeys.has(ApiKeys.stash), hasT = await ApiKeys.has(ApiKeys.tpdb);
+  if (ids.isEmpty || (!hasS && !hasT)) return FetchResult(works, imgs, ['لا ممثلات مرتبطة أو لا مفتاح StashDB/ThePornDB'], 0);
   final n = limit ?? ids.length; final now = DateTime.now().millisecondsSinceEpoch;
   var i = 0;
   for (; i < n && i < ids.length; i++) {
@@ -81,10 +84,15 @@ Future<FetchResult> fetchUpdates(Map<String, dynamic> input, {int cursor = 0, in
     try {
       if (s.works) {
         final keys = {...((e['k'] as List?) ?? const []).cast<String>()};
-        final fresh = [for (final w in await StashDB.scenes('${e['s']}', maxPages: 1)) if (!keys.contains(wKeyOf(w))) w];
+        final known = [for (final w in (e['w'] as List? ?? const [])) Map<String, dynamic>.from(w as Map)];
+        // المصدران معًا، والعمل الموجود من المصدر الآخر لا يُعدّ جديدًا
+        var got = <Map<String, dynamic>>[];
+        if (hasS && '${e['s'] ?? ''}'.isNotEmpty) got = mergeWorks(got, await StashDB.scenes('${e['s']}', maxPages: 1)).list;
+        if (hasT && '${e['t'] ?? ''}'.isNotEmpty) { try { got = mergeWorks(got, await TPDB.scenes('${e['t']}', maxPages: 1)).list; } on SourceError catch (x) { if (x.status == 401 || x.status == 403) errs.add(x.msg); } }
+        final fresh = [for (final w in got) if (!keys.contains(wKeyOf(w)) && !known.any((k) => sameWork(k, w))) w];
         if (fresh.isNotEmpty) works['${e['id']}'] = fresh;
       }
-      if (s.photos) {
+      if (s.photos && hasS && '${e['s'] ?? ''}'.isNotEmpty) {
         final d = await StashDB.q(r'query($id:ID!){findPerformer(id:$id){images{url width height}}}', {'id': e['s']});
         for (final m in ((d['findPerformer'] as Map?)?['images'] as List? ?? const [])) {
           if (m is! Map || !safeHttps(m['url'])) continue; final id = StudioRepo.idOf('${m['url']}'); if (known.contains(id)) continue; known.add(id);

@@ -43,6 +43,7 @@ const phone = { width: 390, height: 844 }, desk = { width: 1440, height: 900 };
 await shoot(phone, 'phone-01-home', '/');
 await shoot(phone, 'phone-02-library', '/library');
 await shoot(phone, 'phone-03-detail', '/p/demo-4');
+await shoot(phone, 'phone-04b-detail-works', '/p/demo-4', async p => { await p.mouse.move(195, 600); for (let k = 0; k < 3; k++) { await p.mouse.wheel(0, 600); await p.waitForTimeout(200); } });
 await shoot(phone, 'phone-04-detail-scroll', '/p/demo-4', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 700); });
 await shoot(phone, 'phone-05-more', '/more');
 await shoot(phone, 'phone-06-works', '/works');
@@ -50,6 +51,7 @@ await shoot(phone, 'phone-06b-works-scroll', '/works', async p => { await p.mous
 for (const [t, n] of [[6, 'performers'], [7, 'studios'], [5, 'diary'], [1, 'watch']]) {
   await shoot(phone, 'phone-06c-works-' + n, '/works?wt=' + t, async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 560); });
 }
+await shoot(phone, 'phone-06d-works-focus', '/works?wp=demo-4', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 560); });
 await shoot(phone, 'phone-07-discover', '/discover');
 await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 900); });
 await shoot(desk, 'desk-05-discover', '/discover');

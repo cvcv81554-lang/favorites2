@@ -185,3 +185,18 @@ class EmptyState extends StatelessWidget {
     Wrap(spacing: S.s3, runSpacing: S.s3, alignment: WrapAlignment.center, children: actions),
   ])));
 }
+
+/// صورة عمل **كاملة بلا قص**: الصورة كلها في الوسط (contain)، وخلفها نسخة مصغّرة جدًا منها تملأ الفراغ بنعومة
+/// (تُفك بعرض 24 بكسل فتبدو ضبابية بلا أي فلتر مكلف) — مناسبة للملصقات الطولية والصور العريضة معًا.
+class WorkImage extends StatelessWidget {
+  const WorkImage(this.src, {super.key, this.name = ''});
+  final String src, name;
+  @override
+  Widget build(BuildContext context) {
+    if (src.isEmpty) return Photo('', name: name);
+    return Stack(fit: StackFit.expand, children: [
+      ColorFiltered(colorFilter: const ColorFilter.mode(Color(0x99000000), BlendMode.darken), child: Photo(src, name: name, cacheWidth: 24, alignment: Alignment.center)),
+      Photo(src, name: name, fit: BoxFit.contain, alignment: Alignment.center),
+    ]);
+  }
+}

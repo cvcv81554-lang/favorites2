@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../data/dual_source.dart';
+import '../../../data/photo_hash.dart';
 import '../../../data/sources.dart';
 import '../../../domain/age_gate.dart';
 import '../../core/state.dart';
@@ -22,7 +24,7 @@ class CandidateScreen extends ConsumerStatefulWidget {
 }
 
 class _CandidateScreenState extends ConsumerState<CandidateScreen> {
-  Map<String, dynamic>? _p; List<Map<String, dynamic>> _works = []; String _err = ''; bool _loading = true, _adding = false;
+  Map<String, dynamic>? _p; List<Map<String, dynamic>> _works = []; List<String> _extra = []; String _pdb = ''; String _err = ''; bool _loading = true, _adding = false;
   final _pc = PageController(viewportFraction: .86); int _page = 0;
 
   @override void initState() { super.initState(); _load(); }
@@ -38,8 +40,25 @@ class _CandidateScreenState extends ConsumerState<CandidateScreen> {
       if (p == null) { setState(() { _loading = false; _err = 'لم تُعثر عليها في StashDB (ربما حُذفت أو دُمجت).'; }); return; }
       if (!adultOk({'birth': p['birth_date']})) { setState(() { _loading = false; _err = 'لا يمكن عرض هذا الملف.'; }); return; }   // بوابة +18 قبل الصور والأعمال
       setState(() { _p = p; _loading = false; });
-      final w = await StashDB.scenes(widget.stashId, maxPages: 1);
+      var w = await StashDB.scenes(widget.stashId, maxPages: 1);
       if (mounted) setState(() => _works = w);
+      // نفس الممثلة في ThePornDB (مطابقة محافظة) ⇒ أعمالها وصورها أيضًا، بلا تكرار
+      final cp = await findCounterpart(Candidate(source: 'stash', id: widget.stashId, name: '${p['name']}', aliases: ((p['aliases'] as List?) ?? const []).join(', '), birth: '${p['birth_date'] ?? ''}', country: '${p['country'] ?? ''}'));
+      if (cp == null || !mounted) return;
+      final tp = await tpdbPerformer(cp.id).catchError((_) => null);
+      if (tp != null && !adultOk({'birth': '${(tp['extras'] as Map?)?['birthday'] ?? ''}'})) return;   // البوابة على بيانات المصدر الثاني أيضًا
+      try { w = mergeWorks(w, await TPDB.scenes(cp.id, maxPages: 1)).list..sort((a, b) => '${b['d'] ?? b['y'] ?? ''}'.compareTo('${a['d'] ?? a['y'] ?? ''}')); } catch (_) {}
+      if (mounted) setState(() { _works = w; _pdb = cp.id; });
+      // صور ThePornDB غير المكررة بصريًا مع صور StashDB
+      final base = <List<bool>>[];
+      for (final u in stashImages(p).take(6)) { final b = await fetchImageBytes(u); final h = b == null ? null : await photoHash(b); if (h != null) base.add(h); }
+      final extra = <String>[];
+      for (final u in tpdbImages(tp).take(6)) {
+        final b = await fetchImageBytes(u); final h = b == null ? null : await photoHash(b); if (h == null) continue;
+        if (base.any((x) => hamming(x, h) <= dupThreshold)) continue;
+        base.add(h); extra.add(u);
+      }
+      if (mounted && extra.isNotEmpty) setState(() => _extra = extra);
     } catch (e) { if (mounted) setState(() { _loading = false; _err = '$e'; }); }
   }
 
@@ -61,7 +80,7 @@ class _CandidateScreenState extends ConsumerState<CandidateScreen> {
   Widget build(BuildContext context) {
     if (_loading) return Scaffold(appBar: AppBar(), body: const Center(child: CircularProgressIndicator()));
     if (_p == null) return Scaffold(appBar: AppBar(), body: EmptyState(title: 'تعذّر فتح الملف', body: _err, actions: [if (_err.contains('مفتاح')) FilledButton.icon(onPressed: () => context.go('/more'), icon: const Icon(Icons.key_rounded), label: const Text('أضيفي المفتاح')), OutlinedButton(onPressed: () { setState(() { _loading = true; _err = ''; }); _load(); }, child: const Text('إعادة المحاولة'))]));
-    final p = _p!; final imgs = stashImages(p); final age = sdAge(p['birth_date']).age;
+    final p = _p!; final imgs = [...stashImages(p), ..._extra]; final age = sdAge(p['birth_date']).age;
     final facts = <(String, String)>[
       if (age != null) ('العمر', '$age سنة'), if ('${p['country'] ?? ''}'.isNotEmpty) ('البلد', '${p['country']}'),
       if (p['height'] != null) ('الطول', '${p['height']} سم'), if (p['ethnicity'] != null) ('العرق', attrLabel('ethnicity', '${p['ethnicity']}')),
@@ -97,13 +116,13 @@ class _CandidateScreenState extends ConsumerState<CandidateScreen> {
             decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [Text(f.$1, style: const TextStyle(color: C.muted, fontSize: 11)), Text(f.$2, style: const TextStyle(fontWeight: FontWeight.w600))]))]),
           const SizedBox(height: S.s2),
-          const Text('المصدر: StashDB الرسمي', style: TextStyle(color: C.muted, fontSize: 12)),
+          Text(_pdb.isEmpty ? 'المصدر: StashDB' : 'المصدر: StashDB + ThePornDB (مدمجان بلا تكرار)', style: const TextStyle(color: C.muted, fontSize: 12)),
         ]))),
         SliverToBoxAdapter(child: SectionHeader('أحدث أعمالها', sub: _works.isEmpty ? 'جارٍ التحميل…' : '${_works.length} عمل')),
         SliverList.builder(itemCount: _works.length, itemBuilder: (c, i) {
           final w = _works[i];
           return ListTile(
-            leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 96, height: 56, child: Photo('${w['p'] ?? ''}', name: '${w['s'] ?? w['t']}', alignment: Alignment.center))),
+            leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 96, height: 56, child: WorkImage('${w['p'] ?? ''}', name: '${w['s'] ?? w['t']}'))),
             title: Text('${w['t']}', maxLines: 2, overflow: TextOverflow.ellipsis),
             subtitle: Text([if ('${w['s'] ?? ''}'.isNotEmpty) w['s'], if ('${w['d'] ?? w['y'] ?? ''}'.isNotEmpty) w['d'] ?? w['y']].join(' · '), style: const TextStyle(color: C.muted)));
         }),

@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../domain/age_gate.dart';
 import '../domain/sanitize.dart';
-import '../domain/works.dart' show sceneIdOf;
+import '../domain/works.dart' show sceneIdsOf, normTitle, idConflict, sameWork;
 import 'keys.dart';
 
 /// خطأ مصدر بنص عربي واضح.
@@ -206,23 +206,27 @@ String _bestImg(Object? imgs, {bool wide = false}) {
 /// دمج أعمال جديدة مع القائمة (قاعدة التطبيق السابق): نفس المفتاح ⇒ تُملأ الحقول الفارغة فقط ولا يُحذف شيء؛ الجديد يأخذ a=الآن.
 ({List<Map<String, dynamic>> list, int added, int filled}) mergeWorks(List<Map<String, dynamic>> cur, List<Map<String, dynamic>> incoming) {
   final out = [for (final w in cur) Map<String, dynamic>.from(w)];
-  // المطابقة بمعرّف المشهد أولًا (الأدق)، ثم بالعنوان والاستوديو فقط إن لم يتعارض المعرّفان — مشهدان مختلفان بنفس العنوان لا يندمجان
-  final byId = <String, int>{}, byKey = <String, int>{};
-  void index(int i) { final sid = sceneIdOf(out[i]); if (sid != null) byId[sid] = i; byKey.putIfAbsent(wKeyOf(out[i]), () => i); }
+  // المطابقة بأي معرّف مشترك (StashDB/ThePornDB) أولًا، ثم sameWork (العنوان + الاستوديو/التاريخ) بلا تعارض معرّف من نفس المصدر.
+  // الحقول الفارغة فقط تُملأ (ومنها معرّف المصدر الآخر) — لا يُحذف شيء ولا تُستبدل بيانات المستخدم.
+  final byId = <String, int>{}, byT = <String, List<int>>{};
+  void index(int i) { for (final x in sceneIdsOf(out[i])) { byId[x] = i; } final l = byT[normTitle(out[i]['t'])] ??= []; if (!l.contains(i)) l.add(i); }
   for (var i = 0; i < out.length; i++) { index(i); }
   var added = 0, filled = 0; final now = DateTime.now().millisecondsSinceEpoch;
   for (final w in safeWorks(incoming)) {
-    final sid = sceneIdOf(w);
-    int? i = sid != null ? byId[sid] : null;
-    if (i == null) {
-      final j = byKey[wKeyOf(w)];
-      final other = j == null ? null : sceneIdOf(out[j]);
-      if (j != null && (sid == null || other == null || other == sid)) i = j;   // لا تعارض في المعرّف
-    }
-    if (i == null) { out.add({...w, 'a': now}); index(out.length - 1); added++; continue; }
+    int? i;
+    for (final x in sceneIdsOf(w)) { i ??= byId[x]; }
+    if (i != null && idConflict(out[i], w)) i = null;
+    i ??= (byT[normTitle(w['t'])] ?? const <int>[]).where((j) => sameWork(out[j], w)).firstOrNull;
+    if (i == null) { out.add({...w, 'a': w['a'] ?? now}); index(out.length - 1); added++; continue; }
     final t = i; var ch = false;   // ثابت غير فارغ للإغلاق
     w.forEach((f, v) { final e = out[t][f]; if ((e == null || e == '' || (e is List && e.isEmpty)) && v != null && v != '' && !(v is List && v.isEmpty)) { out[t][f] = v; ch = true; } });
     if (ch) { filled++; index(t); }
   }
   return (list: out, added: added, filled: filled);
+}
+
+/// إزالة الأعمال المكررة داخل قائمة ممثلة واحدة (نفس العمل من مصدرين أو مدخل مرتين): تُدمج الحقول ولا يضيع شيء من بياناتك.
+({List<Map<String, dynamic>> list, int removed}) dedupeWorks(List<Map<String, dynamic>> ws) {
+  final m = mergeWorks(const [], ws);
+  return (list: m.list, removed: ws.length - m.list.length);
 }
