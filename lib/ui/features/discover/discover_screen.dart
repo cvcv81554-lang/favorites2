@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +12,7 @@ import '../../../domain/recs.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import 'taste_state.dart';
 
 /// مخزون الاقتراحات (محفوظ على الجهاز) + المخفيات.
 class RecsState { final List<RecCand> pool; final int at; final Set<String> hidden; final bool busy; final String msg, err;
@@ -80,6 +83,8 @@ class DiscoverScreen extends ConsumerWidget {
         Text(st.err, style: const TextStyle(color: C.danger)),
         if (st.err.contains('مفتاح')) Padding(padding: const EdgeInsets.only(top: S.s2), child: FilledButton.icon(onPressed: () => context.go('/more'), icon: const Icon(Icons.key_rounded), label: const Text('أضيفي مفتاح StashDB (من «المزيد»)'))),
       ]))),
+      const SliverToBoxAdapter(child: TasteCard()),
+      const TasteLane(),
       if (ranked.isEmpty && !st.busy)
         SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'اقتراحات تعرف ذوقك',
           body: seeds.isEmpty ? 'اربطي بعض ممثلات مكتبتك بـ StashDB (من صفحتها ⋮ ← ربط بمصدر) ليبدأ التحليل.' : 'اضغطي «تجديد» لتحليل ${seeds.length} ممثلة مرتبطة في مكتبتك.\nكل اقتراح يأتي مع سببه، والأعمار تُتحقق قبل عرض أي صورة.',
@@ -115,9 +120,9 @@ class _RecCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (!c.adult) return const SizedBox.shrink(); // حارس إضافي: لا صورة لغير البالغة
     final pct = (40 + c.score * 58).round().clamp(40, 98);
-    return Semantics(button: true, label: c.name, child: GestureDetector(onTap: () => _sheet(context, ref), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Semantics(button: true, label: c.name, child: GestureDetector(onTap: () => openCandidate(context, ref, c.id, c.reasons), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       AspectRatio(aspectRatio: 3 / 4, child: ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: Stack(fit: StackFit.expand, children: [
-        Photo(c.image, name: c.name, cacheWidth: 360),
+        Photo(c.image, name: c.name),
         Positioned(top: 8, left: 8, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0xCC0A0810), borderRadius: BorderRadius.circular(99)), child: Text('$pct٪', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 12)))),
       ]))),
       const SizedBox(height: 6),
@@ -127,24 +132,79 @@ class _RecCard extends ConsumerWidget {
       if (c.reasons.isNotEmpty) Text(c.reasons.first, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold, fontSize: 11.5)),
     ])));
   }
+}
 
-  void _sheet(BuildContext context, WidgetRef ref) => showModalBottomSheet(context: context, builder: (sc) => Padding(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s5), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-    Row(children: [
-      ClipRRect(borderRadius: BorderRadius.circular(S.rMd), child: SizedBox(width: 90, height: 120, child: Photo(c.image, name: c.name, cacheWidth: 240))),
-      const SizedBox(width: S.s3),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(c.name, style: Theme.of(sc).textTheme.titleLarge),
-        Text([if (c.age != null) '${c.age} سنة', if (c.country.isNotEmpty) c.country, if (c.scenes != null) '${c.scenes} مشهد'].join(' · '), style: const TextStyle(color: C.muted)),
-      ])),
-    ]),
-    const SizedBox(height: S.s3),
-    const Text('لماذا هذا الاقتراح؟', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700)),
-    for (final r in c.reasons.isEmpty ? ['شائعة في StashDB'] : c.reasons) Padding(padding: const EdgeInsets.only(top: 4), child: Text('• $r')),
-    const SizedBox(height: S.s4),
-    Row(children: [
-      Expanded(child: FilledButton.icon(onPressed: () { Navigator.pop(sc); context.push('/search?q=${Uri.encodeQueryComponent(c.name)}'); }, icon: const Icon(Icons.add_rounded), label: const Text('إضافة لمكتبتي'))),
-      const SizedBox(width: S.s2),
-      OutlinedButton.icon(onPressed: () { ref.read(recsProvider.notifier).hide(c.id); Navigator.pop(sc); }, icon: const Icon(Icons.visibility_off_rounded), label: const Text('ليست ذوقي')),
-    ]),
-  ])));
+
+/// فتح مرشحة: إن كانت في المكتبة ⇒ ملفها، وإلا ⇒ ملف المرشحة من StashDB (مع أسباب الاقتراح).
+void openCandidate(BuildContext context, WidgetRef ref, String stashId, List<String> why) {
+  final have = ref.read(libraryProvider).value?.where((p) => p.stashId == stashId).firstOrNull;
+  if (have != null) { context.push('/p/${have.id}'); return; }
+  context.push('/c/$stashId', extra: why);
+}
+
+/// «تحليل ذوقي»: ملخص مقروء لما تشترك فيه مفضلاتك (من بيانات StashDB الموثّقة فقط)، مع زر التحليل/التحديث.
+class TasteCard extends ConsumerWidget {
+  const TasteCard({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(tasteProvider).value ?? const TasteState();
+    final n = ref.read(tasteProvider.notifier);
+    return Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Container(
+      padding: const EdgeInsets.all(S.s4),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(S.rXl), gradient: const LinearGradient(colors: [Color(0xFF2E1830), Color(0xFF15101E)], begin: Alignment.topRight, end: Alignment.bottomLeft), border: Border.all(color: C.gold.withValues(alpha: .35))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Text('🧬', style: TextStyle(fontSize: 22)), const SizedBox(width: 8),
+          const Expanded(child: Text('تحليل ذوقي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: C.gold2))),
+          FilledButton.tonal(onPressed: t.busy ? null : n.analyze, child: Text(t.busy ? 'جارٍ…' : t.at == 0 ? 'حلّل' : 'حدّث')),
+        ]),
+        const SizedBox(height: S.s2),
+        if (t.busy) ...[const LinearProgressIndicator(), const SizedBox(height: 6), Text(t.msg, style: const TextStyle(color: C.muted))]
+        else if (t.err.isNotEmpty) ...[Text(t.err, style: const TextStyle(color: C.danger)), if (t.err.contains('مفتاح')) TextButton(onPressed: () => context.go('/more'), child: const Text('أضيفي المفتاح'))]
+        else if (t.at == 0) const Text('يحلل مفضلاتك من بياناتهن المهنية الموثّقة في StashDB (العرق، الشعر، العيون، الطول، العمر، بداية المسيرة…) ويقترح ممثلات يشبهنها — مع سبب كل اقتراح. لا يُستنتج شيء من الصور.', style: TextStyle(color: C.muted, height: 1.6))
+        else ...[
+          Text('حلّلتُ ${t.analyzed} من ${t.total} (${t.basis})', style: const TextStyle(color: C.muted, fontSize: 12)),
+          const SizedBox(height: 6),
+          if (t.insufficient) const Text('البيانات غير كافية لتحليل دقيق: أحتاج 3 ممثلات على الأقل مرتبطات بـ StashDB في مفضلتك. اربطي مفضلاتك من صفحاتهن (⋮ ← ربط بمصدر).', style: TextStyle(color: C.gold, height: 1.6)),
+          for (final l in t.lines) Padding(padding: const EdgeInsets.only(top: 3), child: Text('• $l', style: const TextStyle(height: 1.5))),
+          if (!t.insufficient && t.lines.isEmpty) const Text('لا نمط واضح: ذوقك متنوع جدًا في الخصائص الموثّقة.', style: TextStyle(color: C.muted)),
+        ],
+      ]),
+    ));
+  }
+}
+
+/// مسار «مقترحة حسب تحليل ذوقك»: كل بطاقة بسببها الأول، والضغط يفتح ملفها.
+class TasteLane extends ConsumerWidget {
+  const TasteLane({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(tasteProvider).value ?? const TasteState();
+    if (t.recs.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    final day = DateTime.now(); final shown = [...t.recs]..shuffle(Random(day.year * 400 + day.month * 32 + day.day));   // تتجدد يوميًا
+    final l = (shown.take(16).toList()..sort((a, b) => b.score.compareTo(a.score)));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _markSeen(ref, l));
+    return SliverToBoxAdapter(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const SectionHeader('✨ مقترحة حسب تحليل ذوقك', sub: 'متجددة يوميًا · اضغطي لترَي السبب والملف'),
+      SizedBox(height: 272, child: ListView.separated(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: S.s4), itemCount: l.length,
+        separatorBuilder: (_, _) => const SizedBox(width: S.s3),
+        itemBuilder: (c, i) { final r = l[i]; final pct = (40 + r.score * 58).round().clamp(40, 98);
+          return SizedBox(width: 150, child: Semantics(button: true, label: r.name, child: GestureDetector(onTap: () => openCandidate(context, ref, r.id, [...r.why, for (final d in r.diff) 'يختلف: $d']), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            AspectRatio(aspectRatio: 3 / 4, child: ClipRRect(borderRadius: BorderRadius.circular(S.rLg), child: Stack(fit: StackFit.expand, children: [
+              Photo(r.image, name: r.name),
+              Positioned(top: 8, left: 8, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0xCC0A0810), borderRadius: BorderRadius.circular(99)), child: Text('$pct٪', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 12)))),
+            ]))),
+            const SizedBox(height: 6),
+            Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text([if (r.age != null) '${r.age} سنة', if (r.country.isNotEmpty) r.country].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12)),
+            if (r.why.isNotEmpty) Text(r.why.first, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold, fontSize: 11.5)),
+          ])))); }),
+      ),
+    ]));
+  }
+  static int _last = 0;
+  static void _markSeen(WidgetRef ref, List<TasteRec> l) {
+    final d = DateTime.now().day; if (_last == d) return; _last = d;   // مرة يوميًا
+    ref.read(tasteProvider.notifier).seen(l.map((r) => r.id));
+  }
 }

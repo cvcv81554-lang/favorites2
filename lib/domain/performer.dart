@@ -19,7 +19,10 @@ class Performer {
   List<String> get lists => _strList(raw['lists']);
   List<String> get photos => _strList(raw['photos']);
   String get thumb => (raw['thumb'] ?? '').toString();
-  String get cover => thumb.isNotEmpty ? thumb : (photos.isNotEmpty ? photos.first : '');
+  /// الصورة الرئيسية بأعلى دقة: أول صورة أصلية (المصغّرة 640px فقط إن لم توجد صور).
+  String get cover => photos.isNotEmpty ? photos.first : thumb;
+  /// بدائل إن تعطّل رابط الصورة الرئيسية: بقية الصور ثم المصغّرة.
+  List<String> get coverFallbacks => [...photos.skip(1), if (thumb.isNotEmpty) thumb];
   List<Map<String, dynamic>> get works => (raw['works'] as List? ?? const []).whereType<Map<String, dynamic>>().toList();
   int get added => (raw['added'] as num?)?.toInt() ?? 0;
   int get updated => (raw['updated'] as num?)?.toInt() ?? 0;

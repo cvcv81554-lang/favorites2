@@ -52,16 +52,41 @@ class WorkGroup {
   }
 }
 
+/// معرّف المشهد في مصدر رسمي (الأدق للتوحيد): StashDB ثم ThePornDB.
+String? sceneIdOf(Map<String, dynamic> w) {
+  final s = '${w['is'] ?? ''}', p = '${w['ip'] ?? ''}';
+  return s.isNotEmpty ? 'is:$s' : p.isNotEmpty ? 'ip:$p' : null;
+}
+
+/// التوحيد عبر الممثلات:
+///  1) الأعمال ذات معرّف مشهد تُوحَّد بالمعرّف (مشهدان مختلفان بنفس العنوان والاستوديو لا يندمجان أبدًا).
+///  2) العمل بلا معرّف يُلحق بمجموعة معرّف **وحيدة** لها نفس العنوان والاستوديو، وإلا يُوحَّد بالعنوان والاستوديو.
 List<WorkGroup> groupWorks(Iterable<Performer> items) {
   final map = <String, WorkGroup>{};
+  final byTitle = <String, Set<String>>{};   // wKey → مفاتيح مجموعات المعرّفات
+  final noId = <(Map<String, dynamic>, Performer, int)>[];
   for (final it in items) {
     final ws = it.works;
     for (var i = 0; i < ws.length; i++) {
-      final k = wKeyOf(ws[i]); if (k == '|') continue;
-      (map[k] ??= WorkGroup(k))._absorb(ws[i], it, i);
+      final wk = wKeyOf(ws[i]); if (wk == '|') continue;
+      final sid = sceneIdOf(ws[i]);
+      if (sid == null) { noId.add((ws[i], it, i)); continue; }
+      (map[sid] ??= WorkGroup(sid))._absorb(ws[i], it, i);
+      (byTitle[wk] ??= {}).add(sid);
     }
   }
+  for (final (w, it, i) in noId) {
+    final wk = wKeyOf(w); final ids = byTitle[wk];
+    final k = (ids != null && ids.length == 1) ? ids.first : wk;
+    (map[k] ??= WorkGroup(k))._absorb(w, it, i);
+  }
   return map.values.toList();
+}
+
+/// مفتاح مجموعة عمل محدد (ممثلة + موضعه) — لفتح ورقته من صفحة الممثلة.
+String? groupKeyOf(List<WorkGroup> groups, String pid, int idx) {
+  for (final g in groups) { for (final r in g.refs) { if (r.p.id == pid && r.idx == idx) return g.key; } }
+  return null;
 }
 
 /// يطبّق تعديلًا على كل نسخ العمل عند كل الممثلات ويعيد السجلات المعدّلة (للحفظ).

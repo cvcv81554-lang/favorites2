@@ -21,6 +21,8 @@ class StudioImg {
 
   /// صورة الشبكة: StashDB يدعم رسميًا ?size=300|600|1280 (stash-box routes_image.go) — أخف بكثير من الأصل.
   String get thumb => sized(url, 600);
+  /// للبطاقات العريضة (لقطات المشاهد): 1280 — حادة على شاشات 3x.
+  String get wide => sized(url, 1280);
   static String sized(String u, int n) {
     final x = Uri.tryParse(u);
     if (x == null || !RegExp(r'(^|\.)stashdb\.org$').hasMatch(x.host) || !x.path.contains('/images/') || x.queryParameters.containsKey('size')) return u;

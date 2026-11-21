@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/background.dart';
 import '../../../data/backup.dart';
@@ -176,13 +177,14 @@ class _BgSection extends ConsumerStatefulWidget {
   @override ConsumerState<_BgSection> createState() => _BgSectionState();
 }
 class _BgSectionState extends ConsumerState<_BgSection> {
-  BgSettings _s = const BgSettings(); Map? _last; bool _busy = false;
+  BgSettings _s = const BgSettings(); Map? _last; bool _busy = false; (bool, String)? _perm;
   @override void initState() { super.initState(); _load(); }
   Future<void> _load() async {
     final repo = await ref.read(repoProvider.future);
     final s = BgSettings.fromJson(await repo.kvGet('bg') as Map?); final l = await repo.kvGet('bg_last') as Map?; final b = await lastBgState();
     final lastAt = [(l?['at'] as num?) ?? 0, (b?['at'] as num?) ?? 0].reduce((x, y) => x > y ? x : y);
-    if (mounted) setState(() { _s = s; _last = lastAt == 0 ? null : {...?l, 'at': lastAt}; });
+    final perm = kIsWeb ? null : await notifStatus();
+    if (mounted) setState(() { _s = s; _perm = perm; _last = lastAt == 0 ? null : {...?l, 'at': lastAt}; });
   }
   Future<void> _set(BgSettings s) async {
     if (s.on && !_s.on) { final ok = await requestNotifPermission(); if (!ok && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الإشعارات غير مسموحة — سيعمل التحديث بلا تنبيه'))); }
@@ -201,6 +203,23 @@ class _BgSectionState extends ConsumerState<_BgSection> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
     finally { if (mounted) setState(() => _busy = false); _load(); }
   }
+  Future<void> _fixPerm() async {
+    final ok = await requestNotifPermission();
+    if (!ok) { await launchUrl(Uri.parse('app-settings:')); }   // رُفض سابقًا ⇒ النظام لا يسأل مجددًا: نفتح إعدادات التطبيق
+    await _load();
+  }
+  Future<void> _test() async {
+    var p = await notifStatus();
+    if (!p.$1) { await requestNotifPermission(); p = await notifStatus(); }
+    if (!p.$1) { if (mounted) { setState(() => _perm = p); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${p.$2} — اضغطي «السماح» ثم فعّليها من الإعدادات'))); } return; }
+    try {
+      await testNotification();
+      await testNotification(delay: const Duration(seconds: 20));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(duration: Duration(seconds: 6), content: Text('أُرسل إشعار الآن، وآخر بعد 20 ثانية — اخرجي من التطبيق الآن لتجربة وصوله في الخلفية')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر الإرسال: $e'))); }
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final last = _last?['at'] as num?;
@@ -215,6 +234,14 @@ class _BgSectionState extends ConsumerState<_BgSection> {
       ListTile(leading: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync_rounded, color: C.gold), title: const Text('افحص الآن'),
         subtitle: Text(last == null ? 'لم يُفحص بعد' : 'آخر فحص: ${DateTime.fromMillisecondsSinceEpoch(last.toInt()).toString().substring(0, 16)} · ${_last?['works'] ?? 0} عمل · ${_last?['photos'] ?? 0} صورة', style: const TextStyle(color: C.muted)),
         onTap: _busy ? null : _now),
+      if (!kIsWeb) ListTile(
+        leading: Icon(_perm?.$1 == true ? Icons.verified_rounded : Icons.notifications_off_rounded, color: _perm?.$1 == true ? C.gold : C.danger),
+        title: Text(_perm == null ? 'إذن الإشعارات…' : _perm!.$1 ? 'الإشعارات مسموحة' : 'الإشعارات غير مسموحة'),
+        subtitle: Text(_perm?.$2 ?? '', style: const TextStyle(color: C.muted)),
+        trailing: _perm?.$1 == false ? TextButton(onPressed: _fixPerm, child: const Text('السماح')) : null),
+      if (!kIsWeb) ListTile(leading: const Icon(Icons.campaign_rounded, color: C.gold), title: const Text('إرسال إشعار تجريبي'),
+        subtitle: const Text('فوري (والتطبيق مفتوح) + آخر بعد 20 ثانية — اخرجي من التطبيق أو أغلقيه لتتأكدي أنه يصل', style: TextStyle(color: C.muted)),
+        onTap: _test),
       const Padding(padding: EdgeInsets.fromLTRB(16, 0, 16, 12), child: Text('الإشعار عام بلا أسماء ولا صور. أندرويد: كل ~12 ساعة عند توفر الشروط. آيفون: النظام يقرر التوقيت حسب استخدامك والبطارية، ولا يعمل إن أغلقتِ التطبيق قسرًا من قائمة التطبيقات.', style: TextStyle(color: C.muted, fontSize: 12, height: 1.5))),
     ]);
   }

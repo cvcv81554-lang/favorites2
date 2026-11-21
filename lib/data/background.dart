@@ -1,8 +1,10 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:workmanager/workmanager.dart';
 
 import '../domain/performer.dart';
@@ -99,6 +101,39 @@ Future<FetchResult> fetchUpdates(Map<String, dynamic> input, {int cursor = 0, in
   return FetchResult(works, imgs, errs, ids.isEmpty ? 0 : (cursor + i) % ids.length);
 }
 
+/// حالة إذن الإشعارات الفعلية من النظام: (مسموحة؟، وصف مقروء).
+Future<(bool, String)> notifStatus() async {
+  if (kIsWeb) return (false, 'الويب: لا إشعارات');
+  await _initNotif();
+  final ios = _notif.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+  if (ios != null) {
+    final p = await ios.checkPermissions();
+    if (p == null) return (false, 'تعذّر قراءة الإذن');
+    if (!p.isEnabled) return (false, 'الإشعارات مرفوضة في إعدادات الآيفون');
+    return (true, [if (p.isAlertEnabled) 'تنبيه', if (p.isSoundEnabled) 'صوت', if (p.isBadgeEnabled) 'شارة'].join(' + ').ifEmpty('مسموحة (بلا تنبيه مرئي)'));
+  }
+  final a = _notif.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  final ok = await a?.areNotificationsEnabled() ?? false;
+  return (ok, ok ? 'مسموحة' : 'الإشعارات مرفوضة في إعدادات أندرويد');
+}
+
+const _testDetails = NotificationDetails(
+  android: AndroidNotificationDetails('test', 'إشعار تجريبي', channelDescription: 'للتأكد من وصول الإشعارات', importance: Importance.high, priority: Priority.high),
+  iOS: DarwinNotificationDetails(presentAlert: true, presentBanner: true, presentList: true, presentSound: true));
+
+/// إشعار تجريبي: فوري، أو مجدول بعد [delay] (يصل والتطبيق في الخلفية أو مغلق — يجدوله النظام نفسه).
+Future<void> testNotification({Duration delay = Duration.zero}) async {
+  if (kIsWeb) return;
+  await _initNotif();
+  if (delay == Duration.zero) {
+    await _notif.show(id: 4290, title: 'المفضلة · إشعار تجريبي', body: 'الإشعارات تعمل ✓ (والتطبيق مفتوح)', notificationDetails: _testDetails);
+    return;
+  }
+  tzdata.initializeTimeZones();
+  await _notif.zonedSchedule(id: 4291, title: 'المفضلة · إشعار تجريبي', body: 'وصل بعد ${delay.inSeconds} ثانية ✓ — يعمل والتطبيق في الخلفية أو مغلق',
+    scheduledDate: tz.TZDateTime.now(tz.UTC).add(delay), notificationDetails: _testDetails, androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle);
+}
+
 Future<void> _notify(int works, int photos) async {
   if (kIsWeb || (works == 0 && photos == 0)) return;
   await _initNotif();
@@ -136,7 +171,7 @@ Future<void> initBackground() async { if (!kIsWeb) await Workmanager().initializ
 Future<void> applyBackground(BgSettings s) async {
   if (kIsWeb) return;
   if (!s.on) { await Workmanager().cancelByUniqueName(bgTaskId); return; }
-  await Workmanager().registerPeriodicTask(bgTaskId, bgTaskId, frequency: Duration(hours: s.hours), initialDelay: const Duration(minutes: 30),
+  await Workmanager().registerPeriodicTask(bgTaskId, bgTaskId, frequency: Duration(hours: defaultTargetPlatform == TargetPlatform.iOS ? 2 : s.hours), initialDelay: const Duration(minutes: 30),
     existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
     constraints: Constraints(networkType: s.wifiOnly ? NetworkType.unmetered : NetworkType.connected, requiresBatteryNotLow: true, requiresStorageNotLow: true));
 }
@@ -157,3 +192,5 @@ Future<List<FetchResult>> takePendingResults() async {
 }
 
 Future<Map<String, dynamic>?> lastBgState() async { final r = await bgRead('bg_state.json'); return r == null ? null : Map<String, dynamic>.from(jsonDecode(r) as Map); }
+
+extension _E on String { String ifEmpty(String o) => isEmpty ? o : this; }

@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../domain/performer.dart';
 import '../../../domain/sanitize.dart';
 import '../../../domain/works.dart';
+import '../../core/posters.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -112,13 +113,14 @@ class WorkCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final du = g.daysUntil;
+    if (g.p.isEmpty && (g.key.startsWith('is:') || g.key.startsWith('ip:'))) Future.microtask(() => ref.read(posterResolverProvider.notifier).want(g.key));   // صورة ناقصة ⇒ تُجلب بمعرّف المشهد
     final sel = ref.watch(_selProvider); final on = sel.contains(g.key);
     return Material(color: on ? C.gold.withValues(alpha: .18) : C.surface, borderRadius: BorderRadius.circular(S.rLg), clipBehavior: Clip.antiAlias, child: InkWell(
       onTap: () => sel.isNotEmpty ? ref.read(_selProvider.notifier).toggle(g.key) : showWorkSheet(context, ref, g.key),
       onLongPress: () => ref.read(_selProvider.notifier).toggle(g.key),
       child: Row(children: [
         SizedBox(width: 150, height: double.infinity, child: Stack(fit: StackFit.expand, children: [
-          Photo(g.p, name: g.s.isNotEmpty ? g.s : g.t, cacheWidth: 400),
+          Photo(g.p, name: g.s.isNotEmpty ? g.s : g.t, alignment: Alignment.center),
           if (g.seen) const Positioned(top: 6, right: 6, child: Icon(Icons.check_circle_rounded, color: C.ok, size: 22)),
           if (g.isUpcoming && du != null && du >= 0) Positioned(bottom: 6, right: 6, child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: C.rose, borderRadius: BorderRadius.circular(99)), child: Text(du == 0 ? 'اليوم' : 'بعد $du يوم', style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w700)))),
         ])),

@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../data/platform/db_factory.dart';
 import '../../data/privacy.dart';
 import '../../domain/performer.dart';
+import 'net_image.dart';
 import 'theme.dart';
 
 class AppLogo extends StatelessWidget {
@@ -16,32 +17,47 @@ class AppLogo extends StatelessWidget {
   Widget build(BuildContext context) => SvgPicture.asset('assets/brand/logo.svg', width: size, height: size, semanticsLabel: 'شعار المفضلة');
 }
 
-/// صورة من أي مرجع: https، data URI، أو ملف على الجهاز (file:). تظهر الأحرف الأولى إن تعذّرت.
+/// صورة من أي مرجع: https، data URI، أو ملف على الجهاز (file:).
+/// الجودة: تُفك بمقاس **المكان الفعلي × كثافة الشاشة** (حاد على iPhone 3x، وبلا هدر ذاكرة) بدل مقاس ثابت صغير.
+/// الروابط المعطوبة: تُجرَّب [fallbacks] بالترتيب، ثم الأحرف الأولى.
 class Photo extends StatelessWidget {
-  const Photo(this.src, {super.key, this.fit = BoxFit.cover, this.name = '', this.cacheWidth, this.alignment = const Alignment(0, -.4)});
+  const Photo(this.src, {super.key, this.fit = BoxFit.cover, this.name = '', this.cacheWidth, this.alignment = const Alignment(0, -.4), this.fallbacks = const [], this.full = false});
   final String src; final BoxFit fit; final String name; final int? cacheWidth; final Alignment alignment;
+  final List<String> fallbacks;
+  /// true: الدقة الأصلية كاملة (العارض) بلا تصغير.
+  final bool full;
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(valueListenable: blurPhotos, builder: (c, blur, _) {
-    final w = _build(c);
+    final w = LayoutBuilder(builder: (c, box) {
+      int? cw = cacheWidth;
+      if (!full && cw == null && box.maxWidth.isFinite && box.maxWidth > 0) {
+        final dpr = MediaQuery.devicePixelRatioOf(c);
+        // fit:cover قد يكبّر بحسب الارتفاع أيضًا ⇒ نأخذ الأكبر من العرض والارتفاع، بحد 2400 بكسل
+        final side = box.maxHeight.isFinite ? (box.maxWidth > box.maxHeight * .75 ? box.maxWidth : box.maxHeight * .75) : box.maxWidth;
+        cw = (side * dpr).clamp(64, 2400).round();
+      }
+      return _build(c, [src, ...fallbacks.where((x) => x.isNotEmpty && x != src)], 0, full ? null : cw);
+    });
     return blur ? ClipRect(child: ImageFiltered(imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: w)) : w;
   });
 
-  Widget _build(BuildContext context) {
-    Widget fallback() => Initials(name);
-    if (src.isEmpty) return fallback();
-    Widget img;
-    if (src.startsWith('data:image/')) {
-      img = Image.memory(base64Decode(src.substring(src.indexOf(',') + 1)), fit: fit, alignment: alignment, cacheWidth: cacheWidth, gaplessPlayback: true, errorBuilder: (_, _, _) => fallback());
-    } else if (src.startsWith('file:')) {
-      final prov = fileImageProvider(src);
-      if (prov == null) return fallback();
-      img = Image(image: ResizeImage.resizeIfNeeded(cacheWidth, null, prov), fit: fit, alignment: alignment, gaplessPlayback: true, errorBuilder: (_, _, _) => fallback());
-    } else {
-      img = Image.network(src, fit: fit, alignment: alignment, cacheWidth: cacheWidth, gaplessPlayback: true, errorBuilder: (_, _, _) => fallback(),
-          loadingBuilder: (c, child, p) => p == null ? child : const Shimmer());
+  Widget _build(BuildContext context, List<String> srcs, int i, int? cw) {
+    Widget next() => i + 1 < srcs.length ? _build(context, srcs, i + 1, cw) : Initials(name);
+    if (i >= srcs.length || srcs[i].isEmpty) return next();
+    final s = srcs[i];
+    if (s.startsWith('data:image/')) {
+      try { return Image.memory(base64Decode(s.substring(s.indexOf(',') + 1)), fit: fit, alignment: alignment, cacheWidth: cw, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next()); }
+      catch (_) { return next(); }
     }
-    return img;
+    if (s.startsWith('file:')) {
+      final prov = fileImageProvider(s);
+      if (prov == null) return next();
+      return Image(image: ResizeImage.resizeIfNeeded(cw, null, prov), fit: fit, alignment: alignment, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next());
+    }
+    if (!s.startsWith('https://') && !s.startsWith('http://')) return next();
+    return Image(image: ResizeImage.resizeIfNeeded(cw, null, netImage(s)), fit: fit, alignment: alignment, gaplessPlayback: true, filterQuality: FilterQuality.medium, errorBuilder: (_, _, _) => next(),
+        frameBuilder: (c, child, frame, sync) => sync || frame != null ? child : const Shimmer());
   }
 }
 
@@ -109,7 +125,7 @@ class _PosterCardState extends State<PosterCard> {
               boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .45), blurRadius: 18, offset: const Offset(0, 10))]),
             clipBehavior: Clip.antiAlias,
             child: Stack(fit: StackFit.expand, children: [
-              Hero(tag: widget.heroTag ?? 'p-${p.id}', child: Photo(p.cover, name: p.name, cacheWidth: 480)),
+              Hero(tag: widget.heroTag ?? 'p-${p.id}', child: Photo(p.cover, name: p.name, fallbacks: p.coverFallbacks)),
               const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment(0, .1), end: Alignment.bottomCenter, colors: [Color(0x000A0810), Color(0xE60A0810)]))),
               if (p.rating > 0) Positioned(top: 8, left: 8, child: _Pill('★ ${p.rating.toStringAsFixed(1)}')),
               if (p.fav) const Positioned(top: 8, right: 8, child: Icon(Icons.favorite_rounded, color: C.rose, size: 20)),

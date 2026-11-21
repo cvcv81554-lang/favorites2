@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'data/background.dart';
 import 'ui/core/bg_coordinator.dart';
 import 'ui/core/theme.dart';
+import 'ui/features/discover/candidate_screen.dart';
 import 'ui/features/discover/discover_screen.dart';
 import 'ui/features/home/home_screen.dart';
 import 'ui/features/library/library_screen.dart';
@@ -48,6 +49,7 @@ final _router = GoRouter(
     GoRoute(path: '/sync', builder: (_, _) => const SyncScreen()),
     GoRoute(path: '/tools', builder: (_, _) => const ToolsScreen()),
     GoRoute(path: '/stats', builder: (_, _) => const StatsScreen()),
+    GoRoute(path: '/c/:sid', builder: (_, s) => CandidateScreen(stashId: s.pathParameters['sid']!, why: (s.extra as List?)?.cast<String>() ?? const [])),
     GoRoute(path: '/search', builder: (_, s) => SourceSearchScreen(initial: s.uri.queryParameters['q'] ?? '', linkTo: s.uri.queryParameters['link'])),
   ],
 );

@@ -33,7 +33,7 @@ class _PhotoViewerState extends ConsumerState<_PhotoViewer> {
     final ph = p.photos; final i = _i.clamp(0, ph.length - 1);
     return Scaffold(backgroundColor: Colors.black, body: Stack(children: [
       PageView.builder(controller: _pc, itemCount: ph.length, onPageChanged: (x) => setState(() => _i = x),
-        itemBuilder: (c, k) => InteractiveViewer(minScale: 1, maxScale: 5, child: Center(child: Photo(ph[k], name: p.name, fit: BoxFit.contain, alignment: Alignment.center)))),
+        itemBuilder: (c, k) => InteractiveViewer(minScale: 1, maxScale: 5, child: Center(child: Photo(ph[k], name: p.name, fit: BoxFit.contain, alignment: Alignment.center, full: true)))),
       SafeArea(child: Padding(padding: const EdgeInsets.all(S.s2), child: Row(children: [
         IconButton(tooltip: 'إغلاق', onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: Colors.white)),
         Expanded(child: Text('${p.name} · ${i + 1}/${ph.length}', style: const TextStyle(color: Colors.white))),

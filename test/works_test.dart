@@ -29,4 +29,20 @@ void main() {
     expect(g.firstWhere((x) => x.t == 'Past').isUpcoming, isFalse);
     expect(g.firstWhere((x) => x.t == 'FutureSeen').isUpcoming, isFalse);
   });
+
+  test('مشهدان مختلفان بنفس العنوان والاستوديو لا يندمجان (معرّف مختلف) ولا يتبادلان الصور', () {
+    final x = Performer({'id': 'x', 'name': 'X', 'works': [{'t': 'Interview', 's': 'Studio', 'is': 'AAA', 'p': 'https://img.test/a.jpg'}, {'t': 'Interview', 's': 'Studio', 'is': 'BBB', 'p': 'https://img.test/b.jpg'}]});
+    final g = groupWorks([x]);
+    expect(g.length, 2);
+    expect(g.firstWhere((e) => e.key == 'is:AAA').p, 'https://img.test/a.jpg');
+    expect(g.firstWhere((e) => e.key == 'is:BBB').p, 'https://img.test/b.jpg');
+  });
+
+  test('نسخة بلا معرّف تُلحق بالمجموعة الوحيدة ذات المعرّف، ومفتاح المجموعة يُحدد بالموضع', () {
+    final a = Performer({'id': 'a', 'name': 'A', 'works': [{'t': 'Same Scene', 's': 'St', 'is': 'S1', 'p': 'https://img.test/s1.jpg'}]});
+    final b = Performer({'id': 'b', 'name': 'B', 'works': [{'t': 'same scene', 's': 'st', 'w': 1}]});
+    final g = groupWorks([a, b]);
+    expect(g.length, 1); expect(g.single.who.length, 2); expect(g.single.seen, isTrue);
+    expect(groupKeyOf(g, 'b', 0), 'is:S1');
+  });
 }

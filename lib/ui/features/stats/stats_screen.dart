@@ -59,7 +59,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           if (topP.isNotEmpty) ...[
             const SizedBox(height: S.s4), const Text('الأكثر مشاهدة', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700)), const SizedBox(height: S.s2),
             SizedBox(height: 120, child: ListView(scrollDirection: Axis.horizontal, children: [for (final (p, n) in topP) Padding(padding: const EdgeInsetsDirectional.only(end: S.s3), child: GestureDetector(onTap: () => context.push('/p/${p.id}'), child: Column(children: [
-              ClipOval(child: SizedBox(width: 72, height: 72, child: Photo(p.cover, name: p.name, cacheWidth: 200))), const SizedBox(height: 4),
+              ClipOval(child: SizedBox(width: 72, height: 72, child: Photo(p.cover, name: p.name, fallbacks: p.coverFallbacks))), const SizedBox(height: 4),
               SizedBox(width: 80, child: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12))), Text('$n عمل', style: const TextStyle(color: C.muted, fontSize: 11)),
             ])))])),
           ],

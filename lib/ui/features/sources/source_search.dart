@@ -45,32 +45,11 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
 
   Future<void> _add(Candidate c) async {
     if (!c.adult) return;
-    final lib = ref.read(libraryProvider.notifier);
     setState(() => _adding.add('${c.source}:${c.id}'));
     try {
-      final existing = widget.linkTo != null ? lib.items.where((p) => p.id == widget.linkTo).firstOrNull
-          : lib.items.where((p) => (c.source == 'stash' ? p.stashId : p.pdbId) == c.id || norm(p.name) == norm(c.name)).firstOrNull;
-      final id = existing?.id ?? const Uuid().v4();
-      final photos = [...?existing?.photos];
-      if (c.image.isNotEmpty && photos.length < 30) photos.add(await downloadPhoto(c.image, '${id}_${DateTime.now().millisecondsSinceEpoch}'));
-      var works = existing?.works ?? <Map<String, dynamic>>[];
-      var added = 0;
-      try {
-        final sc = c.source == 'stash' ? await StashDB.scenes(c.id) : await TPDB.scenes(c.id);
-        final m = mergeWorks(works, sc); works = m.list; added = m.added;
-      } catch (_) {}
-      final base = existing?.raw ?? {'id': id, 'added': DateTime.now().millisecondsSinceEpoch, 'tags': [], 'lists': [], 'source': c.source == 'stash' ? 'StashDB' : 'ThePornDB'};
-      // السجل الحالي بعد انتهاء الجلب (قد تكونين عدّلتِه أثناءه) — لا يُستبدل بلقطة قديمة
-      final now0 = existing == null ? null : lib.items.where((x) => x.id == existing.id).firstOrNull;
-      if (now0 != null) { works = mergeWorks(now0.works, works).list; for (final ph in now0.photos) { if (!photos.contains(ph)) photos.insert(0, ph); } }
-      final p = Performer({...(now0?.raw ?? base), 'name': now0?.name ?? existing?.name ?? c.name, if ((existing?.aliases ?? '').isEmpty && c.aliases.isNotEmpty) 'aliases': c.aliases,
-        if ((existing?.birth ?? '').isEmpty && c.birth.isNotEmpty) 'birth': c.birth, if ((existing?.country ?? '').isEmpty && c.country.isNotEmpty) 'country': c.country,
-        if (c.height != null) 'height': c.height, if (c.careerStart != null) 'cs': c.careerStart,
-        c.source == 'stash' ? 'stashId' : 'pdbId': c.id, 'photos': photos, 'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch, 'updated': DateTime.now().millisecondsSinceEpoch});
-      if (p.isMinor) { _snack('رُفضت: العمر أقل من 18'); return; }
-      await lib.upsert(p);
-      _snack('${existing == null ? 'أُضيفت' : 'رُبطت'} ${p.name} · $added عمل جديد');
-      if (mounted && widget.linkTo != null) context.pop();
+      final r = await addCandidate(ref, c, linkTo: widget.linkTo);
+      _snack(r.$2);
+      if (mounted && widget.linkTo != null && r.$1 != null) context.pop();
     } catch (e) { _snack('$e'); }
     finally { if (mounted) setState(() => _adding.remove('${c.source}:${c.id}')); }
   }
@@ -123,4 +102,36 @@ Future<String> refreshFromSources(WidgetRef ref, Performer p) async {
   final cur = ref.read(libraryProvider.notifier).items.where((x) => x.id == p.id).firstOrNull ?? p;   // السجل الحالي لا اللقطة القديمة
   await ref.read(libraryProvider.notifier).upsert(cur.copyWith({'works': mergeWorks(cur.works, works).list, 'worksAt': DateTime.now().millisecondsSinceEpoch}));
   return errs.isEmpty ? (added > 0 ? 'أُضيف $added عمل جديد' : 'لا أعمال جديدة') : '${added > 0 ? 'أُضيف $added عمل · ' : ''}${errs.join(' · ')}';
+}
+
+/// إضافة مرشحة من مصدر رسمي إلى المكتبة (أو ربطها بسجل موجود): الصورة تُنزّل بدقتها الأصلية، والأعمال تُدمج.
+/// البوابة: يُرفض أي سجل تاريخه يقول أقل من 18. يعيد (السجل المحفوظ، رسالة).
+Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {String? linkTo, List<String> extraImages = const []}) async {
+  if (!c.adult) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
+  final lib = ref.read(libraryProvider.notifier);
+  final existing = linkTo != null ? lib.items.where((p) => p.id == linkTo).firstOrNull
+      : lib.items.where((p) => (c.source == 'stash' ? p.stashId : p.pdbId) == c.id || norm(p.name) == norm(c.name)).firstOrNull;
+  final id = existing?.id ?? const Uuid().v4();
+  final photos = [...?existing?.photos];
+  for (final u in [c.image, ...extraImages].where((u) => u.isNotEmpty).toSet().take(6)) {
+    if (photos.length >= 30) break;
+    photos.add(await downloadPhoto(u, '${id}_${DateTime.now().microsecondsSinceEpoch}'));
+  }
+  var works = existing?.works ?? <Map<String, dynamic>>[];
+  var added = 0;
+  try {
+    final sc = c.source == 'stash' ? await StashDB.scenes(c.id) : await TPDB.scenes(c.id);
+    final m = mergeWorks(works, sc); works = m.list; added = m.added;
+  } catch (_) {}
+  final base = existing?.raw ?? {'id': id, 'added': DateTime.now().millisecondsSinceEpoch, 'tags': [], 'lists': [], 'source': c.source == 'stash' ? 'StashDB' : 'ThePornDB'};
+  // السجل الحالي بعد انتهاء الجلب (قد يكون عُدّل أثناءه) — لا يُستبدل بلقطة قديمة
+  final now0 = existing == null ? null : lib.items.where((x) => x.id == existing.id).firstOrNull;
+  if (now0 != null) { works = mergeWorks(now0.works, works).list; for (final ph in now0.photos) { if (!photos.contains(ph)) photos.insert(0, ph); } }
+  final p = Performer({...(now0?.raw ?? base), 'name': now0?.name ?? existing?.name ?? c.name, if ((existing?.aliases ?? '').isEmpty && c.aliases.isNotEmpty) 'aliases': c.aliases,
+    if ((existing?.birth ?? '').isEmpty && c.birth.isNotEmpty) 'birth': c.birth, if ((existing?.country ?? '').isEmpty && c.country.isNotEmpty) 'country': c.country,
+    if (c.height != null) 'height': c.height, if (c.careerStart != null) 'cs': c.careerStart,
+    c.source == 'stash' ? 'stashId' : 'pdbId': c.id, 'photos': photos, 'works': works, 'worksAt': DateTime.now().millisecondsSinceEpoch, 'updated': DateTime.now().millisecondsSinceEpoch});
+  if (p.isMinor) return (null, 'رُفضت: العمر أقل من 18');
+  await lib.upsert(p);
+  return (p, '${existing == null ? 'أُضيفت' : 'رُبطت'} ${p.name} · $added عمل');
 }

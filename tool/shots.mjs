@@ -48,7 +48,12 @@ await shoot(phone, 'phone-06-works', '/works');
 await shoot(phone, 'phone-07-discover', '/discover');
 await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 900); });
 await shoot(desk, 'desk-05-discover', '/discover');
+await shoot(phone, 'phone-08b-candidate', '/discover', async p => { await p.mouse.click(300, 430); await p.waitForTimeout(2500); });
 await shoot(phone, 'phone-09-studio', '/studio');
+// تبويبات الاستديو (صف الشرائح y≈152؛ الأخيرة تحتاج تمرير الصف أفقيًا)
+for (const [x, n, sc] of [[222, 'all', 0], [110, 'liked', 0], [120, 'albums', 400], [12, 'performers', 400]]) {
+  await shoot(phone, 'phone-09-studio-' + n, '/studio', async p => { if (sc) { await p.mouse.move(200, 152); await p.mouse.wheel(-sc, 0); await p.waitForTimeout(500); } await p.mouse.click(x, 152); });
+}
 await shoot(phone, 'phone-10-stats', '/stats');
 await shoot(phone, 'phone-11-tools', '/tools');
 await shoot(phone, 'phone-12-sync', '/sync');

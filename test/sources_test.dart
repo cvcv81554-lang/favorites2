@@ -83,6 +83,12 @@ void main() {
     expect(m.list[2]['a'], isA<int>());
   });
 
+  test('الدمج بالمعرّف: نفس العنوان بمعرّف مختلف = عمل جديد، ونفس المعرّف بعنوان مختلف = نفس العمل', () {
+    final m = mergeWorks([{'t': 'Interview', 's': 'St', 'is': 'A1', 'n': 'x'}], [{'t': 'Interview', 's': 'St', 'is': 'B2'}, {'t': 'Interview (Remaster)', 's': 'St', 'is': 'A1', 'd': '2024-01-01'}]);
+    expect(m.list.length, 2); expect(m.added, 1);
+    expect(m.list.first['d'], '2024-01-01'); expect(m.list.first['n'], 'x');
+  });
+
   test('بلا مفتاح ⇒ لا طلب شبكة', () async {
     var called = false; sourceClient = MockClient((r) async { called = true; return http.Response('{}', 200); });
     await ApiKeys.set(ApiKeys.stash, '');

@@ -74,7 +74,14 @@ await page.getByRole('button', { name: /Back|رجوع/ }).first().click().catch(
 // الأعمال، اكتشف، الاستديو، المزيد
 for (const [k, n] of [['الأعمال', '10-works'], ['اكتشف', '11-discover'], ['الاستديو', '12-studio'], ['الرئيسية', '13-home']]) { await nav(new RegExp(k)).click().catch(e => errors.push(k + ': ' + e.message)); await page.waitForTimeout(1500); await shot(n); }
 // الاستديو: اكتشاف بلا مفتاح (صور المشاهد)
-await nav(/الاستديو/).click(); await page.waitForTimeout(800); await btn(/ابدأ الاكتشاف|اكتشاف صور جديدة/).click().catch(() => {}); await page.waitForTimeout(4000); await shot('14-studio-after');
+await nav(/الاستديو/).click(); await page.waitForTimeout(800); await btn(/ابحثي عن صور جديدة/).click().catch(() => {}); await page.waitForTimeout(4000); await shot('14-studio-after');
+for (const [k, n] of [['الكل', '15-studio-all'], ['المفضلة', '16-studio-liked'], ['الألبومات', '17-studio-albums'], ['الممثلات', '18-studio-performers']]) {
+  await page.getByRole('button', { name: new RegExp('^' + k) }).first().click().catch(e => errors.push('studio tab ' + k + ': ' + e.message.split(String.fromCharCode(10))[0])); await page.waitForTimeout(1200); await shot(n);
+}
+await page.mouse.click(195, 330); await page.waitForTimeout(1500); await shot('19-studio-performer-grid');
+await page.goBack().catch(() => {}); await page.waitForTimeout(800);
+await nav(/اكتشف/).click(); await page.waitForTimeout(1200); await shot('20-discover-taste');
+await nav(/المزيد/).click(); await page.waitForTimeout(1200); await page.mouse.move(195, 500); for (let k = 0; k < 3; k++) { await page.mouse.wheel(0, 700); await page.waitForTimeout(300); } await shot('21-more-notif');
 const facts = await page.evaluate(() => ({ heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null }));
 log.push('heapMB: ' + facts.heapMB);
 writeFileSync(join(out, 'report.txt'), [...log, '', 'ERRORS:', ...errors].join('\n'));

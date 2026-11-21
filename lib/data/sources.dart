@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../domain/age_gate.dart';
 import '../domain/sanitize.dart';
+import '../domain/works.dart' show sceneIdOf;
 import 'keys.dart';
 
 /// خطأ مصدر بنص عربي واضح.
@@ -124,6 +125,26 @@ const _sceneFieldSets = <(String, String)>[
   ('id title date studio{name}', ''),
 ];
 
+/// الملف المهني الكامل لممثلة من StashDB (بيانات وصفية موثّقة فقط — لا تحليل صور).
+/// مجموعتا حقول: الكاملة ثم البسيطة إن رفض الخادم حقلًا.
+const _perfFull = 'id name disambiguation aliases gender birth_date country ethnicity hair_color eye_color height cup_size band_size waist_size hip_size breast_type career_start_year career_end_year tattoos{location} piercings{location} scene_count images{url width height}';
+const _perfBasic = 'id name aliases gender birth_date country height career_start_year scene_count images{url width height}';
+
+Future<Map<String, dynamic>?> stashPerformer(String id) async {
+  for (final f in [_perfFull, _perfBasic]) {
+    try { final d = await StashDB.q('query(\$id:ID!){findPerformer(id:\$id){$f}}', {'id': id}); final p = d['findPerformer']; return p is Map ? Map<String, dynamic>.from(p) : null; }
+    on SourceError catch (e) { if (e.status != -1 || f == _perfBasic) rethrow; }
+  }
+  return null;
+}
+
+/// صور ممثلة من رد StashDB مرتبة من الأعلى دقة (https فقط، بلا تكرار).
+List<String> stashImages(Map<String, dynamic>? p) {
+  final l = [for (final m in (p?['images'] as List? ?? const [])) if (m is Map && safeHttps(m['url'])) m];
+  l.sort((a, b) => (((b['width'] ?? 0) as num) * ((b['height'] ?? 0) as num)).compareTo(((a['width'] ?? 0) as num) * ((a['height'] ?? 0) as num)));
+  return <String>{for (final m in l) "${m["url"]}"}.toList();
+}
+
 // ===================== ThePornDB (REST الرسمي) =====================
 class TPDB {
   static const base = 'https://api.theporndb.net';
@@ -169,6 +190,9 @@ class TPDB {
   }
 }
 
+/// أفضل صورة من قائمة صور (الأكبر دقة؛ العريضة للمشاهد) — https فقط.
+String bestImageUrl(Object? imgs, {bool wide = false}) => _bestImg(imgs, wide: wide);
+
 String _cut(String s, int n) => s.length <= n ? s : '${s.substring(0, n)}…';
 String _bestImg(Object? imgs, {bool wide = false}) {
   if (imgs is! List || imgs.isEmpty) return '';
@@ -182,14 +206,23 @@ String _bestImg(Object? imgs, {bool wide = false}) {
 /// دمج أعمال جديدة مع القائمة (قاعدة التطبيق السابق): نفس المفتاح ⇒ تُملأ الحقول الفارغة فقط ولا يُحذف شيء؛ الجديد يأخذ a=الآن.
 ({List<Map<String, dynamic>> list, int added, int filled}) mergeWorks(List<Map<String, dynamic>> cur, List<Map<String, dynamic>> incoming) {
   final out = [for (final w in cur) Map<String, dynamic>.from(w)];
-  final idx = <String, int>{for (var i = 0; i < out.length; i++) wKeyOf(out[i]): i};
+  // المطابقة بمعرّف المشهد أولًا (الأدق)، ثم بالعنوان والاستوديو فقط إن لم يتعارض المعرّفان — مشهدان مختلفان بنفس العنوان لا يندمجان
+  final byId = <String, int>{}, byKey = <String, int>{};
+  void index(int i) { final sid = sceneIdOf(out[i]); if (sid != null) byId[sid] = i; byKey.putIfAbsent(wKeyOf(out[i]), () => i); }
+  for (var i = 0; i < out.length; i++) { index(i); }
   var added = 0, filled = 0; final now = DateTime.now().millisecondsSinceEpoch;
   for (final w in safeWorks(incoming)) {
-    final k = wKeyOf(w); final i = idx[k];
-    if (i == null) { out.add({...w, 'a': now}); idx[k] = out.length - 1; added++; continue; }
-    var ch = false;
-    w.forEach((f, v) { final e = out[i][f]; if ((e == null || e == '' || (e is List && e.isEmpty)) && v != null && v != '' && !(v is List && v.isEmpty)) { out[i][f] = v; ch = true; } });
-    if (ch) filled++;
+    final sid = sceneIdOf(w);
+    int? i = sid != null ? byId[sid] : null;
+    if (i == null) {
+      final j = byKey[wKeyOf(w)];
+      final other = j == null ? null : sceneIdOf(out[j]);
+      if (j != null && (sid == null || other == null || other == sid)) i = j;   // لا تعارض في المعرّف
+    }
+    if (i == null) { out.add({...w, 'a': now}); index(out.length - 1); added++; continue; }
+    final t = i; var ch = false;   // ثابت غير فارغ للإغلاق
+    w.forEach((f, v) { final e = out[t][f]; if ((e == null || e == '' || (e is List && e.isEmpty)) && v != null && v != '' && !(v is List && v.isEmpty)) { out[t][f] = v; ch = true; } });
+    if (ch) { filled++; index(t); }
   }
   return (list: out, added: added, filled: filled);
 }

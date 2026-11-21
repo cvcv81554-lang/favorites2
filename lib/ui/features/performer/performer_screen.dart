@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -10,6 +12,8 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../../data/sources.dart' show mergeWorks;
 import '../../../domain/sanitize.dart';
+import '../../../domain/works.dart' show groupKeyOf, sceneIdOf;
+import '../../core/posters.dart';
 import '../works/works_screen.dart';
 import '../sources/source_search.dart';
 import '../studio/studio_screen.dart';
@@ -36,7 +40,8 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
     if (p == null) return const Scaffold(body: EmptyState(title: 'غير موجودة', body: 'ربما حُذفت هذه الممثلة.'));
     if (!_counted) { _counted = true; WidgetsBinding.instance.addPostFrameCallback((_) => _countView(p)); }
     final photos = p.photos.isNotEmpty ? p.photos : [p.cover];
-    final works = [...p.works]..sort((a, b) => ((b['d'] ?? b['y'] ?? '') as Object).toString().compareTo(((a['d'] ?? a['y'] ?? '') as Object).toString()));
+    // (العمل، موضعه الأصلي) — الموضع يحدد مجموعة العمل الصحيحة عند فتح ورقته
+    final works = [for (final (i, w) in p.works.indexed) (w, i)]..sort((a, b) => '${b.$1['d'] ?? b.$1['y'] ?? ''}'.compareTo('${a.$1['d'] ?? a.$1['y'] ?? ''}'));
     final h = MediaQuery.sizeOf(context).height;
     return Scaffold(
       body: CustomScrollView(slivers: [
@@ -79,7 +84,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
                 final v = _pc.hasClients && _pc.position.haveDimensions ? (1 - ((_pc.page ?? 0) - i).abs() * .08).clamp(.9, 1.0) : (i == 0 ? 1.0 : .92);
                 return Transform.scale(scale: v, child: child);
               }, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: ClipRRect(borderRadius: BorderRadius.circular(S.rXl),
-                child: GestureDetector(onTap: p.photos.isEmpty ? null : () => openPhotoViewer(context, ref, p, i), child: i == 0 ? Hero(tag: 'p-${p.id}', child: Photo(photos[i], name: p.name)) : Photo(photos[i], name: p.name))))),
+                child: GestureDetector(onTap: p.photos.isEmpty ? null : () => openPhotoViewer(context, ref, p, i), child: i == 0 ? Hero(tag: 'p-${p.id}', child: _FullPhoto(src: photos[i], name: p.name)) : _FullPhoto(src: photos[i], name: p.name))))),
             )),
             if (photos.length > 1) Positioned(bottom: 48, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               for (var i = 0; i < photos.length && i < 12; i++) AnimatedContainer(duration: S.fast, margin: const EdgeInsets.symmetric(horizontal: 3), width: i == _page ? 18 : 6, height: 6,
@@ -107,7 +112,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
         ]))),
         SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدتِ ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
         if (works.isEmpty) const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(S.s4), child: Text('لا أعمال مسجلة بعد.', style: TextStyle(color: C.muted)))),
-        SliverList.builder(itemCount: works.length, itemBuilder: (c, i) => _WorkTile(w: works[i])),
+        SliverList.builder(itemCount: works.length, itemBuilder: (c, i) => _WorkTile(w: works[i].$1, pid: p.id, idx: works[i].$2)),
         const SliverToBoxAdapter(child: SizedBox(height: 120)),
       ]),
     );
@@ -156,16 +161,18 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
 }
 
 class _WorkTile extends ConsumerWidget {
-  const _WorkTile({required this.w});
-  final Map<String, dynamic> w;
+  const _WorkTile({required this.w, required this.pid, required this.idx});
+  final Map<String, dynamic> w; final String pid; final int idx;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final sid = sceneIdOf(w);
+    if ('${w['p'] ?? ''}'.isEmpty && sid != null) Future.microtask(() => ref.read(posterResolverProvider.notifier).want(sid));
     final seen = w['w'] == 1 || w['w'] == true, upc = isUpcoming(w);
     final sub = [if ((w['s'] ?? '').toString().isNotEmpty) w['s'], if ((w['d'] ?? w['y'] ?? '').toString().isNotEmpty) (w['d'] ?? w['y'])].join(' · ');
     return ListTile(
-      onTap: () => showWorkSheet(context, ref, wKeyOf(w)),
+      onTap: () { final k = groupKeyOf(ref.read(worksProvider), pid, idx); if (k != null) showWorkSheet(context, ref, k); },
       contentPadding: const EdgeInsets.symmetric(horizontal: S.s4, vertical: 2),
-      leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 72, height: 44, child: Photo((w['p'] ?? '').toString(), name: (w['s'] ?? w['t'] ?? '').toString(), cacheWidth: 200))),
+      leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 72, height: 44, child: Photo((w['p'] ?? '').toString(), name: (w['s'] ?? w['t'] ?? '').toString(), alignment: Alignment.center))),
       title: Text((w['t'] ?? '').toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(sub, style: const TextStyle(color: C.muted, fontSize: 12.5)),
       trailing: upc ? const Chip(label: Text('قادم'), visualDensity: VisualDensity.compact) : seen ? const Icon(Icons.check_circle_rounded, color: C.ok) : (w['q'] == 1 ? const Icon(Icons.bookmark_rounded, color: C.gold) : null),
@@ -195,4 +202,15 @@ Future<void> showAddWork(BuildContext context, WidgetRef ref, Performer p) async
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m.added > 0 ? 'أُضيف العمل' : 'العمل موجود مسبقًا — حُدّثت بياناته')));
   }
   t.dispose(); s.dispose(); d.dispose();
+}
+
+/// صورة كاملة بلا قص ولا تمدد: الصورة بأبعادها (contain) فوق نسخة مموّهة منها تملأ الإطار.
+class _FullPhoto extends StatelessWidget {
+  const _FullPhoto({required this.src, required this.name});
+  final String src, name;
+  @override
+  Widget build(BuildContext context) => Stack(fit: StackFit.expand, children: [
+    ImageFiltered(imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24), child: Opacity(opacity: .55, child: Photo(src, name: name, cacheWidth: 120))),
+    Photo(src, name: name, fit: BoxFit.contain, alignment: Alignment.center),
+  ]);
 }
