@@ -94,6 +94,36 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       onTap: () { Navigator.pop(c); ref.read(reelSigProvider.notifier).dislikeIt(hideKey: r.key); _skip(); }),
   ])));
 
+  /// فحص روابط المقاطع: لكل خادم — هل يصل؟ ما رد الخادم؟ هل هو ملف فيديو فعلًا؟ (طلب أول 1 كيلوبايت فقط)
+  Future<void> _diagnose(List<Reel> feed) async {
+    final sample = <String, String>{};   // خادم ⇒ أول رابط منه
+    final all = feed.isNotEmpty ? feed.map((r) => r.url) : ref.read(worksProvider).where((g) => g.tr.isNotEmpty).map((g) => g.tr);
+    for (final u in all) { final h = Uri.tryParse(u)?.host ?? ''; if (h.isNotEmpty) sample.putIfAbsent(h, () => u); if (sample.length >= 8) break; }
+    final total = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length;
+    final results = <(String, String, bool)>[];
+    showModalBottomSheet(context: context, isScrollControlled: true, builder: (c) => StatefulBuilder(builder: (c, set) {
+      if (results.isEmpty && sample.isNotEmpty) {
+        Future(() async {
+          for (final e in sample.entries) {
+            final r = await probeVideoUrl(e.value);
+            results.add((e.key, r.$2, r.$1)); if (c.mounted) set(() {});
+          }
+        });
+      }
+      return SafeArea(child: Padding(padding: const EdgeInsets.all(S.s4), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('فحص المقاطع', style: Theme.of(c).textTheme.titleLarge),
+        Text('$total مقطعًا في مكتبتك · ${sample.length} خادمًا', style: const TextStyle(color: C.muted)),
+        const SizedBox(height: S.s2),
+        if (sample.isEmpty) const Text('لا روابط مقاطع بعد — اضغط «جلب المقاطع» أولًا.'),
+        for (final r in results) ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: Icon(r.$3 ? Icons.check_circle_rounded : Icons.cancel_rounded, color: r.$3 ? C.ok : C.danger),
+          title: Text(r.$1, style: const TextStyle(fontWeight: FontWeight.w600)), subtitle: Text(r.$2, style: const TextStyle(color: C.muted))),
+        if (results.length < sample.length) const Padding(padding: EdgeInsets.all(S.s2), child: LinearProgressIndicator()),
+        const SizedBox(height: S.s2),
+        const Text('صوّر هذه الشاشة وأرسلها — تحدد بالضبط سبب عدم التشغيل.', style: TextStyle(color: C.muted, fontSize: 12)),
+      ])));
+    }));
+  }
+
   void _skip() { if (_feed != null && _cur + 1 < _feed!.length) _pc.nextPage(duration: const Duration(milliseconds: 280), curve: Curves.easeOut); }
 
   @override
@@ -116,6 +146,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
         const Text('مقاطع', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
         const Spacer(),
         ChoiceChip(label: Text(_favsOnly ? 'مفضلاتي' : 'كل مكتبتي'), selected: true, showCheckmark: false, onSelected: (_) => setState(() { _favsOnly = !_favsOnly; _seed++; _build(); if (_pc.hasClients) _pc.jumpToPage(0); })),
+        IconButton(tooltip: 'فحص المقاطع', onPressed: () => _diagnose(feed), icon: const Icon(Icons.troubleshoot_rounded, color: Colors.white)),
         IconButton(tooltip: 'جلب مقاطع جديدة', onPressed: _busy ? null : _fetch, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh_rounded, color: Colors.white)),
       ]))),
       if (_msg.isNotEmpty && (_busy || feed.isNotEmpty)) Positioned(top: 100, left: S.s4, right: S.s4, child: SafeArea(child: Container(padding: const EdgeInsets.all(S.s2),
@@ -145,7 +176,7 @@ class _ReelPage extends ConsumerStatefulWidget {
 }
 
 class _ReelPageState extends ConsumerState<_ReelPage> {
-  VideoPlayerController? _c; bool _err = false, _paused = false, _heart = false;
+  VideoPlayerController? _c; bool _err = false, _paused = false, _heart = false; String _why = '';
   Duration _maxPos = Duration.zero; int _loops = 0; Duration _last = Duration.zero;
 
   @override
@@ -154,7 +185,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final c = VideoPlayerController.networkUrl(Uri.parse(widget.reel.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
     _c = c;
     c.initialize().then((_) { if (!mounted) return; c.setLooping(true); c.setVolume(widget.muted ? 0 : 1); if (widget.active) c.play(); setState(() {}); })
-      .catchError((_) { if (mounted) { setState(() => _err = true); if (widget.active) widget.onError(); } });
+      .catchError((Object e) { if (mounted) { setState(() { _err = true; _why = '$e'; }); if (widget.active) widget.onError(); } });
     c.addListener(_tick);
   }
 
@@ -184,7 +215,11 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final ready = c != null && c.value.isInitialized;
     Widget video = ready ? Center(child: AspectRatio(aspectRatio: c.value.aspectRatio, child: VideoPlayer(c))) : Stack(fit: StackFit.expand, children: [
       if (g.p.isNotEmpty) Opacity(opacity: .5, child: WorkImage(g.p, name: g.s)),
-      Center(child: _err ? const Padding(padding: EdgeInsets.all(S.s5), child: Text('تعذّر تشغيل هذا المقطع (قد يكون محجوبًا على شبكتك أو حُذف) — ننتقل للتالي…', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)))
+      Center(child: _err ? Padding(padding: const EdgeInsets.all(S.s5), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('تعذّر تشغيل هذا المقطع — ننتقل للتالي…', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+        const SizedBox(height: 6),
+        Text('الخادم: ${Uri.tryParse(widget.reel.url)?.host ?? '?'}\n${_why.length > 160 ? _why.substring(0, 160) : _why}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white38, fontSize: 11)),
+      ]))
         : const CircularProgressIndicator()),
     ]);
     return ValueListenableBuilder<bool>(valueListenable: blurPhotos, builder: (_, blur, _) => GestureDetector(
@@ -222,4 +257,30 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   Widget _side(IconData i, String t, Color col, VoidCallback f) => Padding(padding: const EdgeInsets.only(bottom: S.s3), child: GestureDetector(onTap: f, child: Column(children: [
     Icon(i, color: col, size: 30, shadows: const [Shadow(blurRadius: 6)]), Text(t, style: const TextStyle(color: Colors.white, fontSize: 11, shadows: [Shadow(blurRadius: 6)])),
   ])));
+}
+
+
+/// يفحص رابط مقطع بطلب أول 1 كيلوبايت (نفس شبكات النظام): (يعمل؟، الوصف).
+Future<(bool, String)> probeVideoUrl(String url) async {
+  try {
+    final r = await sourceClient.get(Uri.parse(url), headers: {'Range': 'bytes=0-1023'}).timeout(const Duration(seconds: 15));
+    final ct = r.headers['content-type'] ?? '?';
+    if (r.statusCode == 403 || r.statusCode == 401) return (false, 'الخادم يرفض (${r.statusCode}) — رابط منتهٍ أو يمنع التشغيل خارج موقعه');
+    if (r.statusCode == 404 || r.statusCode == 410) return (false, 'غير موجود (${r.statusCode}) — حُذف المقطع');
+    if (r.statusCode >= 400) return (false, 'خطأ من الخادم (${r.statusCode})');
+    final b = r.bodyBytes;
+    final mp4 = b.length > 8 && b[4] == 0x66 && b[5] == 0x74 && b[6] == 0x79 && b[7] == 0x70;   // ftyp
+    final webm = b.length > 4 && b[0] == 0x1A && b[1] == 0x45 && b[2] == 0xDF && b[3] == 0xA3;
+    final hls = String.fromCharCodes(b.take(7)) == '#EXTM3U';
+    if (webm) return (false, 'صيغة WebM — لا يشغّلها الآيفون');
+    if (ct.contains('text/html')) return (false, 'الرابط صفحة ويب وليس ملف فيديو');
+    if (mp4 || hls || ct.startsWith('video/') || ct.contains('mpegurl')) return (true, 'يعمل (${hls ? 'HLS' : mp4 ? 'MP4' : ct})');
+    return (false, 'رد غير متوقع ($ct، ${r.statusCode})');
+  } on SourceError catch (e) { return (false, e.msg); }
+  catch (e) {
+    final s = '$e';
+    if (s.contains('reset') || s.contains('Handshake') || s.contains('closed')) return (false, 'الاتصال يُقطع — غالبًا محجوب على شبكتك');
+    if (s.contains('Timeout')) return (false, 'لا رد (مهلة)');
+    return (false, s.length > 90 ? s.substring(0, 90) : s);
+  }
 }
