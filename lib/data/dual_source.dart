@@ -159,3 +159,30 @@ Map<String, dynamic> fillFrom(Map<String, dynamic> a, Map<String, dynamic> b) {
   b.forEach((k, v) { final e = o[k]; if (e == null || e == '' || (e is List && e.isEmpty && !(v is List && v.isEmpty))) o[k] = v; });
   return o;
 }
+
+/// من عمل مع ممثلة في ThePornDB (من مشاهدها): معرّف السجل ⇒ (الاسم، عدد المشاهد المشتركة).
+/// يُقرأ بتسامح: بعض الردود تضع الممثلة الأصلية في parent.
+Future<Map<String, (String, int)>> tpdbCoStars(String pdbId, {int pages = 1}) async {
+  final out = <String, (String, int)>{};
+  for (var page = 1; page <= pages; page++) {
+    final d = await TPDB.get('/performers/${Uri.encodeComponent(pdbId)}/scenes?page=$page&per_page=100');
+    for (final s in (d['data'] as List? ?? const [])) {
+      if (s is! Map) continue;
+      for (final p in (s['performers'] as List? ?? const [])) {
+        if (p is! Map) continue;
+        final par = p['parent'] is Map ? p['parent'] as Map : null;
+        final id = '${par?['id'] ?? p['id'] ?? ''}', name = '${par?['name'] ?? p['name'] ?? ''}';
+        final g = '${(par?['extras'] as Map?)?['gender'] ?? (p['extra'] as Map?)?['gender'] ?? (p['extras'] as Map?)?['gender'] ?? ''}'.toLowerCase();
+        if (id.isEmpty || id == pdbId || name.isEmpty || (g.isNotEmpty && g != 'female')) continue;
+        out[id] = (name, (out[id]?.$2 ?? 0) + 1);
+      }
+    }
+    if (page >= (((d['meta'] as Map?)?['last_page'] as num?)?.toInt() ?? 1)) break;
+  }
+  return out;
+}
+
+/// ملف ThePornDB بصيغة StashDB للعرض والتحليل (مع الأسماء الأخرى والصور).
+Map<String, dynamic> tpdbProfile(Map<String, dynamic> t) => {
+  ...tpdbAsStash(t), 'aliases': [for (final a in (t['aliases'] as List? ?? const [])) '$a'], 'images': [for (final u in tpdbImages(t)) {'url': u}],
+};

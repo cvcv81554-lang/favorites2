@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/dual_source.dart' show tpdbPerformer, tpdbAsStash, fillFrom;
+import '../../../data/dual_source.dart' show tpdbPerformer, tpdbAsStash, tpdbProfile, tpdbCoStars, fillFrom, samePerson;
 import '../../../data/keys.dart';
 import '../../../data/sources.dart';
 import '../../../domain/age_gate.dart';
@@ -15,11 +15,14 @@ import '../../core/state.dart';
 /// توصية من تحليل الذوق (لها أسباب واختلافات حقيقية من البيانات) + مساراتها في «اكتشف».
 /// tags: top | with:<اسم> | debut | young | country | explore
 class TasteRec {
-  final String id, name, birth, country, image; final double score; final List<String> why, diff, tags; final Map<String, Object> feats;
-  const TasteRec(this.id, this.name, this.birth, this.country, this.image, this.score, this.why, this.diff, this.feats, [this.tags = const []]);
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'birth': birth, 'country': country, 'image': image, 'score': score, 'why': why, 'diff': diff, 'f': feats, 'tags': tags};
+  /// [id]: معرّف StashDB، أو «tp:<معرّف>» لمرشحة من ThePornDB. [pdb]: سجلها في ThePornDB إن وُجد.
+  final String id, name, birth, country, image, pdb; final double score; final List<String> why, diff, tags; final Map<String, Object> feats;
+  const TasteRec(this.id, this.name, this.birth, this.country, this.image, this.score, this.why, this.diff, this.feats, [this.tags = const [], this.pdb = '']);
+  /// مصادرها: StashDB، ThePornDB، أو الاثنان.
+  String get sources => id.startsWith('tp:') ? 'ThePornDB' : pdb.isNotEmpty ? 'StashDB + ThePornDB' : 'StashDB';
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'birth': birth, 'country': country, 'image': image, 'score': score, 'why': why, 'diff': diff, 'f': feats, 'tags': tags, 'pdb': pdb};
   factory TasteRec.fromJson(Map j) => TasteRec('${j['id']}', '${j['name']}', '${j['birth'] ?? ''}', '${j['country'] ?? ''}', '${j['image'] ?? ''}', (j['score'] as num?)?.toDouble() ?? 0,
-    [...(j['why'] as List? ?? const []).cast<String>()], [...(j['diff'] as List? ?? const []).cast<String>()], Map<String, Object>.from(j['f'] as Map? ?? const {}), [...(j['tags'] as List? ?? const []).cast<String>()]);
+    [...(j['why'] as List? ?? const []).cast<String>()], [...(j['diff'] as List? ?? const []).cast<String>()], Map<String, Object>.from(j['f'] as Map? ?? const {}), [...(j['tags'] as List? ?? const []).cast<String>()], '${j['pdb'] ?? ''}');
   int? get age => sdAge(birth).age;
   int get pct => (40 + score * 58).round().clamp(40, 98);
 }
@@ -158,9 +161,51 @@ class TasteN extends AsyncNotifier<TasteState> {
         } on SourceError catch (e) { if (e.status == 401 || e.status == 403) rethrow; }
         await Future<void>.delayed(const Duration(milliseconds: 220));
       }
-      final names = {for (final p in have) p.stashId: p.name};
+      // ThePornDB: من عمل مع مفضلاتك هناك (المصدر الثاني للاقتراحات)
+      final tpFound = <String, Map<String, dynamic>>{};
+      if (hasT) {
+        final costar = <String, (String, int, Set<String>)>{};
+        final tpTop = (have.where((p) => p.pdbId.isNotEmpty).toList()..sort((a, b) => (b.rating + (b.fav ? 1 : 0)).compareTo(a.rating + (a.fav ? 1 : 0)))).take(6).toList();
+        for (final p in tpTop) {
+          _set(s.copy(msg: 'ThePornDB: من عمل مع ${p.name}…'));
+          final key = p.stashId.isNotEmpty ? p.stashId : 'tp:${p.pdbId}';
+          for (final pid in p.pdbIds.take(3)) {
+            try { (await tpdbCoStars(pid)).forEach((id, v) { final e = costar[id]; costar[id] = (v.$1, (e?.$2 ?? 0) + v.$2, {...?e?.$3, key}); }); }
+            on SourceError catch (e) { if (e.status == 401 || e.status == 403) break; }
+            await Future<void>.delayed(const Duration(milliseconds: 220));
+          }
+          if (!withNames.any((w) => w.$1 == key)) withNames.add((key, p.name));
+        }
+        final libP = {for (final p in lib) ...p.pdbIds};
+        final best = (costar.entries.where((e) => !libP.contains(e.key)).toList()..sort((a, b) => b.value.$2.compareTo(a.value.$2))).take(24).toList();
+        var k = 0;
+        for (final e in best) {
+          k++; _set(s.copy(msg: 'ThePornDB: بيانات المرشحات ($k/${best.length})…'));
+          try {
+            final t = await tpdbPerformer(e.key); if (t == null) continue;
+            final x = tpdbProfile(t);
+            if (!adultOk({'birth': x['birth_date']})) continue;                   // بوابة +18 قبل أي صورة
+            tpFound[e.key] = {...x, 'id': 'tp:${e.key}', '_pdb': e.key};
+            (tagsOf['tp:${e.key}'] ??= {}).addAll([for (final w in e.value.$3) 'with:$w']);
+          } on SourceError catch (er) { if (er.status == 401 || er.status == 403) break; }
+          await Future<void>.delayed(const Duration(milliseconds: 220));
+        }
+        // نفس الشخص في المصدرين ⇒ مرشحة واحدة (StashDB أساس + سجل ThePornDB)
+        Candidate cand(Map<String, dynamic> x, String src) => Candidate(source: src, id: '${x['id']}', name: '${x['name'] ?? ''}', aliases: ((x['aliases'] as List?) ?? const []).join(', '), birth: '${x['birth_date'] ?? ''}', country: '${x['country'] ?? ''}');
+        for (final t in tpFound.values) {
+          final same = found.values.where((x) => samePerson(cand(x, 'stash'), cand(t, 'tpdb'))).toList();
+          if (same.length == 1) {
+            final sx = same.single; sx['_pdb'] = t['_pdb'];
+            (tagsOf['${sx['id']}'] ??= {}).addAll(tagsOf['${t['id']}'] ?? const {});
+            found['${sx['id']}'] = fillFrom(sx, t)..['images'] = [...(sx['images'] as List? ?? const []), ...(t['images'] as List? ?? const [])];
+          } else {
+            found['${t['id']}'] = t;
+          }
+        }
+      }
+      final names = {for (final p in have) ...{if (p.stashId.isNotEmpty) p.stashId: p.name, if (p.pdbId.isNotEmpty) 'tp:${p.pdbId}': p.name}};
       // 3) الترتيب: البوابة أولًا، ثم استبعاد المكتبة والمخفيات، ثم التشابه + التعلّم + التجدد
-      final inLib = {for (final p in lib) if (p.stashId.isNotEmpty) p.stashId}, libNames = {for (final p in lib) norm(p.name)};
+      final inLib = {for (final p in lib) ...p.stashIds, for (final p in lib) for (final t in p.pdbIds) 'tp:$t'}, libNames = {for (final p in lib) norm(p.name)};
       final hidden = {...((await repo.kvGet('recs_hidden') as List?) ?? const []).cast<String>()};
       final fb = Map<String, double>.from((await repo.kvGet('taste_fb') as Map?)?.map((k, v) => MapEntry('$k', (v as num).toDouble())) ?? {});
       final imp = Map<String, dynamic>.from(await repo.kvGet('taste_imp') as Map? ?? {});
@@ -184,7 +229,7 @@ class TasteN extends AsyncNotifier<TasteState> {
         if (a != null && a <= 21 && '${x['birth_date'] ?? ''}'.length >= 10) { tags.add('young'); } else { tags.remove('young'); }   // 18–21 بتاريخ كامل فقط
         if (score >= .45 && score < .68 && sim.diff.isNotEmpty) tags.add('explore');
         final imgs = stashImages(x);
-        recs.add(TasteRec(id, '${x['name']}', '${x['birth_date'] ?? ''}', '${x['country'] ?? ''}', imgs.isEmpty ? '' : imgs.first, score, why.take(4).toList(), sim.diff.take(2).toList(), ft, tags.toList()));
+        recs.add(TasteRec(id, '${x['name']}', '${x['birth_date'] ?? ''}', '${x['country'] ?? ''}', imgs.isEmpty ? '' : imgs.first, score, why.take(4).toList(), sim.diff.take(2).toList(), ft, tags.toList(), '${x['_pdb'] ?? ''}'));
       }
       recs.sort((a, b) => b.score.compareTo(a.score));
       final st = s.copy(busy: false, msg: '', lines: lines, bars: bars, recs: recs.take(120).toList(), analyzed: prof.analyzed, total: pool.length, unlinked: unlinked, at: now, basis: basis, insufficient: false, withNames: withNames);
@@ -220,7 +265,7 @@ class TasteN extends AsyncNotifier<TasteState> {
     final r = Random(7);
     final recs = [for (var i = 0; i < 40; i++) TasteRec('demo-c$i', 'مرشحة ${i + 1}', '${1994 + i % 10}-0${1 + i % 9}-1${i % 9}', ['CZ', 'US', 'HU', 'RU'][i % 4], 'https://img.test/p${i % 12}.png',
       .95 - i * .015, ['لون الشعر بني مثل 75٪ من مفضلاتك', if (i % 3 == 0) 'عملت مع نموذج 1 من مفضلاتك', 'طولها ${160 + r.nextInt(10)} سم قريب من متوسط مفضلاتك'], [if (i % 4 == 1) 'العرق لاتينية (أغلب مفضلاتك قوقازية)'], const {},
-      ['top', if (i % 3 == 0) 'with:demo', if (i % 5 == 0) 'debut', if (i % 6 == 0) 'young', if (i % 4 == 0) 'country', if (i % 4 == 1) 'explore'])];
+      ['top', if (i % 3 == 0) 'with:demo', if (i % 5 == 0) 'debut', if (i % 6 == 0) 'young', if (i % 4 == 0) 'country', if (i % 4 == 1) 'explore'], i % 2 == 0 ? 'demo-t$i' : '')];
     return TasteState(at: DateTime.now().millisecondsSinceEpoch, analyzed: 12, total: 14, unlinked: 2, basis: 'المفضلة', recs: recs, withNames: const [('demo', 'نموذج 1')],
       lines: const ['لون الشعر: بني (75٪ من 12)', 'العرق: قوقازية (67٪ من 12)', 'الطول: متوسط 165 سم (155–172، من 12)'],
       bars: const [TraitBar('hair_color', 'لون الشعر', [('بني', .75), ('أشقر', .17), ('أسود', .08)], 12, true), TraitBar('ethnicity', 'العرق', [('قوقازية', .67), ('لاتينية', .25), ('مختلطة', .08)], 12, true),

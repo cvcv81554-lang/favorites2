@@ -58,7 +58,7 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
     if (!c.adult) return;
     setState(() => _adding.add('${c.source}:${c.id}'));
     try {
-      final r = await addCandidate(ref, c, linkTo: widget.linkTo);
+      final r = await addCandidate(ref, c, twin: _twin['${c.source}:${c.id}'], linkTo: widget.linkTo);
       _snack(r.$2);
       if (mounted && widget.linkTo != null && r.$1 != null) context.pop();
     } catch (e) { _snack('$e'); }
@@ -84,7 +84,7 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
           : ListView.separated(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, 120), itemCount: _res.length, separatorBuilder: (_, _) => const SizedBox(height: S.s2), itemBuilder: (c, i) {
               final r = _res[i]; final a = sdAge(r.birth).age;
               final tw = _twin['${r.source}:${r.id}'];
-              final have = lib.any((p) => (r.source == 'stash' ? p.stashId : p.pdbId) == r.id || (tw != null && p.pdbId == tw.id));
+              final have = lib.any((p) => (r.source == 'stash' ? p.stashIds : p.pdbIds).contains(r.id) || (tw != null && p.pdbIds.contains(tw.id)));
               final busy = _adding.contains('${r.source}:${r.id}');
               return Card(child: Padding(padding: const EdgeInsets.all(S.s2), child: Row(children: [
                 ClipRRect(borderRadius: BorderRadius.circular(S.rSm), child: SizedBox(width: 72, height: 96, child: Photo(r.image, name: r.name, cacheWidth: 200))),
@@ -95,7 +95,8 @@ class _SourceSearchState extends ConsumerState<SourceSearchScreen> {
                   Text([if (a != null) '$a سنة' else 'العمر غير معروف', if (r.country.isNotEmpty) r.country, tw != null ? 'StashDB + ThePornDB' : r.source == 'stash' ? 'StashDB' : 'ThePornDB'].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12.5)),
                 ])),
                 busy ? const SizedBox(width: 40, height: 40, child: Padding(padding: EdgeInsets.all(10), child: CircularProgressIndicator(strokeWidth: 2)))
-                  : have && widget.linkTo == null ? const Icon(Icons.check_circle_rounded, color: C.ok)
+                  // موجودة: لا قفل — تحديثها من المصدرين (تُضاف سجلات المصدر الآخر وأعماله وصوره بلا تكرار)
+                  : have && widget.linkTo == null ? OutlinedButton.icon(onPressed: () => _add(r), icon: const Icon(Icons.check_circle_rounded, color: C.ok, size: 18), label: const Text('تحديث'))
                   : FilledButton.tonal(onPressed: () => _add(r), child: Text(widget.linkTo != null ? 'ربط' : 'إضافة')),
               ])));
             })),
@@ -112,8 +113,8 @@ Future<String> refreshFromSources(WidgetRef ref, Performer p, {void Function(Str
 }
 
 /// إضافة مرشحة من أي مصدر — تُجلب من المصدرين معًا وتُدمج بلا تكرار. يعيد (السجل المحفوظ، رسالة).
-Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {String? linkTo, List<String> extraImages = const [], void Function(String)? progress}) =>
-  syncFromSources(ref, c: c, linkTo: linkTo, extraImages: extraImages, progress: progress);
+Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {Candidate? twin, String? linkTo, List<String> extraImages = const [], void Function(String)? progress}) =>
+  syncFromSources(ref, c: c, twin: twin, linkTo: linkTo, extraImages: extraImages, progress: progress);
 
 /// المسار الموحّد للإضافة والربط والتحديث في كل التطبيق:
 /// 1) يحدد المعرّفين (StashDB وThePornDB) ويبحث عن الممثلة نفسها في المصدر الآخر بمطابقة محافظة (الاسم + تاريخ الميلاد).
@@ -121,7 +122,7 @@ Future<(Performer?, String)> addCandidate(WidgetRef ref, Candidate c, {String? l
 /// 3) يدمج بلا تكرار: الأعمال (بالمعرّف ثم العنوان/الاستوديو/التاريخ)، والصور (بالرابط والبايتات والبصمة المرئية — الأوضح يبقى)،
 ///    والمعلومات تملأ الناقص فقط — لا تُستبدل بياناتك ولا تُحذف تقييماتك أو مشاهداتك أو ملاحظاتك.
 /// [deep]: البحث عن كل سجلاتها بكل أسمائها (يُتخطى في التحديث الجماعي إن بُحث خلال آخر 30 يومًا).
-Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing, Candidate? c, String? linkTo, List<String> extraImages = const [], void Function(String)? progress, bool deep = true}) async {
+Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing, Candidate? c, Candidate? twin, String? linkTo, List<String> extraImages = const [], void Function(String)? progress, bool deep = true}) async {
   if (c != null && !c.adult) return (null, 'رُفضت: العمر أقل من 18 أو تاريخ غير صالح');
   final lib = ref.read(libraryProvider.notifier);
   Performer? base = existing ?? (linkTo != null ? lib.items.where((p) => p.id == linkTo).firstOrNull : null);
@@ -133,6 +134,7 @@ Future<(Performer?, String)> syncFromSources(WidgetRef ref, {Performer? existing
   if (base != null && base.isMinor) return (null, 'مرفوض: العمر أقل من 18');
   // كل سجلاتها في المصدرين (بالاسم وكل أسمائها الأخرى)
   var sIds = <String>{if (sid.isNotEmpty) sid, ...?base?.stashIds}, tIds = <String>{if (pid.isNotEmpty) pid, ...?base?.pdbIds};
+  if (twin != null && twin.adult) { (twin.source == 'stash' ? sIds : tIds).add(twin.id); }   // سجل المصدر الآخر المعروف (من نتيجة البحث المزدوجة)
   final recent = DateTime.now().millisecondsSinceEpoch - ((base?.raw['linkedAt'] as num?) ?? 0) < 30 * 86400000;
   if (deep || !recent || sIds.isEmpty || tIds.isEmpty) {
     final noId = sid.isEmpty && pid.isEmpty;

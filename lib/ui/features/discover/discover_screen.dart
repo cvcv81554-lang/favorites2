@@ -125,7 +125,7 @@ class DiscoverScreen extends ConsumerWidget {
 
   static Widget _lane(String title, String sub, List<TasteRec> l, bool showAge) => SliverToBoxAdapter(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     SectionHeader(title, sub: sub.isEmpty ? null : sub),
-    SizedBox(height: 286, child: ListView.separated(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: S.s4), itemCount: l.length,
+    SizedBox(height: 306, child: ListView.separated(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: S.s4), itemCount: l.length,
       separatorBuilder: (_, _) => const SizedBox(width: S.s3), itemBuilder: (c, i) => SizedBox(width: 156, child: TasteRecCard(r: l[i], showAge: showAge)))),
   ]));
 
@@ -217,6 +217,7 @@ class TasteRecCard extends ConsumerWidget {
       Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
       Text([if (r.age != null) '${r.age} سنة', if (r.country.isNotEmpty) r.country].join(' · '), style: const TextStyle(color: C.muted, fontSize: 12)),
       if (showAge && r.birth.length >= 10) Text('✓ موثّق: ${r.birth}', style: const TextStyle(color: C.ok, fontSize: 11)),
+      Text(r.sources, style: TextStyle(color: r.pdb.isNotEmpty && !r.id.startsWith('tp:') ? C.gold2 : C.muted, fontSize: 10.5)),
       if (r.why.isNotEmpty) Text(r.why.first, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold, fontSize: 11.5, height: 1.3)),
     ])));
 }
@@ -243,10 +244,12 @@ class _RecCard extends ConsumerWidget {
 
 
 /// فتح مرشحة: إن كانت في المكتبة ⇒ ملفها، وإلا ⇒ ملف المرشحة من StashDB (مع أسباب الاقتراح).
-void openCandidate(BuildContext context, WidgetRef ref, String stashId, List<String> why) {
-  final have = ref.read(libraryProvider).value?.where((p) => p.stashId == stashId).firstOrNull;
+/// [id]: معرّف StashDB أو «tp:<معرّف ThePornDB>».
+void openCandidate(BuildContext context, WidgetRef ref, String id, List<String> why) {
+  final t = id.startsWith('tp:'), rid = t ? id.substring(3) : id;
+  final have = ref.read(libraryProvider).value?.where((p) => t ? p.pdbIds.contains(rid) : p.stashIds.contains(rid)).firstOrNull;
   if (have != null) { context.push('/p/${have.id}'); return; }
-  context.push('/c/$stashId', extra: why);
+  context.push('/c/$id', extra: why);
 }
 
 /// «ملف ذوقك»: ما تشترك فيه مفضلاتك (أشرطة بنسب حقيقية من بيانات StashDB الموثّقة فقط)، أو دعوة للتحليل.
@@ -269,7 +272,7 @@ class TasteCard extends ConsumerWidget {
       return Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Container(padding: const EdgeInsets.all(S.s4), decoration: deco, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         head(''),
         const SizedBox(height: S.s2),
-        const Text('«اكتشف» كله مبني على ذوقك: أحلل مفضلاتك من بياناتهن المهنية الموثّقة في StashDB (العرق، الشعر، العيون، الطول، العمر، بداية المسيرة، الوشوم…) — المفضلة الأعلى تقييمًا تزن أكثر — ثم أقترح ممثلات يشبهنها، ولكل اقتراح سببه. لا يُستنتج شيء من الصور.', style: TextStyle(color: C.muted, height: 1.6)),
+        const Text('«اكتشف» كله مبني على ذوقك: أحلل مفضلاتك من بياناتهن المهنية الموثّقة في StashDB وThePornDB معًا (العرق، الشعر، العيون، الطول، العمر، بداية المسيرة، الوشوم…) — المفضلة الأعلى تقييمًا تزن أكثر — ثم أقترح ممثلات من المصدرين يشبهنها، ولكل اقتراح سببه. لا يُستنتج شيء من الصور.', style: TextStyle(color: C.muted, height: 1.6)),
         if (unlinked > 0) Padding(padding: const EdgeInsets.only(top: 6), child: Text('ملاحظة: $unlinked من مفضلاتك غير مرتبطة بـ StashDB ولن تدخل التحليل.', style: const TextStyle(color: C.gold, fontSize: 12.5))),
         const SizedBox(height: S.s3),
         SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: t.busy ? null : n.analyze, icon: const Icon(Icons.auto_awesome_rounded), label: Text(t.busy ? t.msg : 'حلّل ذوقي'))),
