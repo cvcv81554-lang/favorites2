@@ -48,10 +48,11 @@ ReelSignals dislike(ReelSignals s, {String? performerId, String? studio, String?
 
 /// ترتيب المقاطع: ذوقك في الأعمال + ميلك المتعلَّم هنا + المفضلة + الحداثة − ما رأيته كثيرًا،
 /// ثم تشكيل الخلاصة: ~80٪ الأفضل و~20٪ استكشاف (ممثلات/استوديوهات أقل ظهورًا)، ولا تتكرر ممثلة خلال 3 مقاطع متتالية.
-List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool favsOnly = true, int seed = 0, int n = 80}) {
+List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool favsOnly = true, int seed = 0, int n = 80, bool Function(String url)? playable}) {
   final pool = <(WorkGroup, double, String)>[];
   for (final g in all) {
     if (g.tr.isEmpty || g.who.isEmpty) continue;
+    if (playable != null && !playable(g.tr)) continue;   // خادم محجوب على شبكتك أو لا يُشغَّل
     if (favsOnly && !g.who.any((p) => p.fav || p.rating >= 4)) continue;
     final c = sig.clips[g.key];
     if (c?['h'] == 1) continue;
@@ -98,3 +99,15 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
   }
   return out;
 }
+
+
+// ===================== الخوادم التي تعمل على شبكتك =====================
+
+String hostOf(String url) => Uri.tryParse(url)?.host.toLowerCase() ?? '';
+
+/// حالة خادم محفوظة: {ok: يعمل؟، t: وقت الفحص، why: السبب}. المحجوب يُعاد فحصه بعد 3 أيام، والعامل بعد 14 يومًا.
+bool hostStale(Map? h, int now) => h == null || now - ((h['t'] as num?) ?? 0) > (h['ok'] == true ? 14 : 3) * 86400000;
+/// يُعرض المقطع إن كان خادمه يعمل أو لم يُفحص بعد (يُفحص عند التشغيل).
+bool hostUsable(Map<String, dynamic> hosts, String url) => (hosts[hostOf(url)] as Map?)?['ok'] != false;
+/// خطأ تشغيل يعني حجب الشبكة (لا خطأ في المقطع نفسه).
+bool looksBlocked(String err) => RegExp(r'TLS|-1200|-1005|reset|Handshake|connection was lost|closed', caseSensitive: false).hasMatch(err);

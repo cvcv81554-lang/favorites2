@@ -57,7 +57,8 @@ class ReelsScreen extends ConsumerStatefulWidget {
 
 class _ReelsState extends ConsumerState<ReelsScreen> {
   final _pc = PageController();
-  List<Reel>? _feed; int _cur = 0; bool _favsOnly = true, _muted = true, _busy = false; String _msg = '';
+  List<Reel>? _feed; int _cur = 0; bool _favsOnly = true, _muted = true, _busy = false, _preparing = false; String _msg = '';
+  Map<String, dynamic> _hosts = {}; int _hidden = 0;
   int _seed = DateTime.now().millisecondsSinceEpoch;
   final _liked = <String>{};
 
@@ -65,16 +66,50 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 
   void _build() {
     final sig = ref.read(reelSigProvider).value ?? const ReelSignals({}, {});
-    _feed = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed);
+    _feed = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed, playable: (u) => hostUsable(_hosts, u));
+    _hidden = _scope().where((g) => !hostUsable(_hosts, g.tr)).length;
     _cur = 0;
     for (final r in _feed!) { if (sig.clips[r.key]?['l'] == 1) _liked.add(r.key); }
+    if (_hidden > 0 && _msg.isEmpty) _msg = 'يُعرض ${_feed!.length} مقطعًا يعمل على شبكتك · $_hidden مخفي لأن خوادمها محجوبة (تعمل كلها مع VPN)';
+  }
+
+  Iterable<WorkGroup> _scope() => ref.read(worksProvider).where((g) => g.tr.isNotEmpty && (!_favsOnly || g.who.any((p) => p.fav || p.rating >= 4)));
+
+  /// قبل العرض: يفحص الخوادم غير المفحوصة أو القديمة (طلب صغير لكل خادم، 4 معًا) ويحفظ النتيجة — فيُعرض ما يعمل فقط.
+  Future<void> _prepare({bool force = false}) async {
+    final repo = await ref.read(repoProvider.future);
+    _hosts = Map<String, dynamic>.from(await repo.kvGet('reel_hosts') as Map? ?? {});
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final byHost = <String, String>{};
+    for (final g in _scope()) { final h = hostOf(g.tr); if (h.isNotEmpty) byHost.putIfAbsent(h, () => g.tr); }
+    final todo = byHost.entries.where((e) => force || hostStale(_hosts[e.key] as Map?, now)).toList();
+    if (todo.isNotEmpty) {
+      if (mounted) setState(() { _preparing = true; _msg = 'فحص خوادم المقاطع على شبكتك (0/${todo.length})…'; });
+      var done = 0;
+      for (var i = 0; i < todo.length; i += 4) {
+        await Future.wait([for (final e in todo.skip(i).take(4)) probeVideoUrl(e.value).then((r) { _hosts[e.key] = {'ok': r.$1, 't': now, 'why': r.$2}; done++; if (mounted) setState(() => _msg = 'فحص خوادم المقاطع على شبكتك ($done/${todo.length})…'); })]);
+      }
+      await repo.kvSet('reel_hosts', _hosts);
+    }
+    if (!mounted) return;
+    setState(() { _preparing = false; _msg = ''; _build(); });
+  }
+
+  Future<void> _markBlocked(String url, String why) async {
+    final h = hostOf(url); if (h.isEmpty) return;
+    _hosts[h] = {'ok': false, 't': DateTime.now().millisecondsSinceEpoch, 'why': why};
+    await (await ref.read(repoProvider.future)).kvSet('reel_hosts', _hosts);
+    if (!mounted || _feed == null) return;
+    // إخفاء بقية مقاطع هذا الخادم من الخلاصة الحالية (بعد المقطع الحالي)
+    setState(() { _feed = [..._feed!.take(_cur + 1), ..._feed!.skip(_cur + 1).where((r) => hostOf(r.url) != h)]; _hidden = _scope().where((g) => !hostUsable(_hosts, g.tr)).length; });
   }
 
   Future<void> _fetch() async {
     setState(() { _busy = true; _msg = 'جارٍ جلب المقاطع…'; });
     final m = await fetchTrailers(ref, favsOnly: _favsOnly, progress: (x) { if (mounted) setState(() => _msg = x); });
     if (!mounted) return;
-    setState(() { _busy = false; _msg = m; _seed++; _build(); });
+    setState(() { _busy = false; _msg = m; _seed++; });
+    await _prepare();
   }
 
   void _onViewed(Reel r, double frac) => ref.read(reelSigProvider.notifier).view(r.g, frac, like: false);
@@ -94,33 +129,27 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       onTap: () { Navigator.pop(c); ref.read(reelSigProvider.notifier).dislikeIt(hideKey: r.key); _skip(); }),
   ])));
 
-  /// فحص روابط المقاطع: لكل خادم — هل يصل؟ ما رد الخادم؟ هل هو ملف فيديو فعلًا؟ (طلب أول 1 كيلوبايت فقط)
-  Future<void> _diagnose(List<Reel> feed) async {
-    final sample = <String, String>{};   // خادم ⇒ أول رابط منه
-    final all = feed.isNotEmpty ? feed.map((r) => r.url) : ref.read(worksProvider).where((g) => g.tr.isNotEmpty).map((g) => g.tr);
-    for (final u in all) { final h = Uri.tryParse(u)?.host ?? ''; if (h.isNotEmpty) sample.putIfAbsent(h, () => u); if (sample.length >= 8) break; }
-    final total = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length;
-    final results = <(String, String, bool)>[];
-    showModalBottomSheet(context: context, isScrollControlled: true, builder: (c) => StatefulBuilder(builder: (c, set) {
-      if (results.isEmpty && sample.isNotEmpty) {
-        Future(() async {
-          for (final e in sample.entries) {
-            final r = await probeVideoUrl(e.value);
-            results.add((e.key, r.$2, r.$1)); if (c.mounted) set(() {});
-          }
-        });
-      }
-      return SafeArea(child: Padding(padding: const EdgeInsets.all(S.s4), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('فحص المقاطع', style: Theme.of(c).textTheme.titleLarge),
-        Text('$total مقطعًا في مكتبتك · ${sample.length} خادمًا', style: const TextStyle(color: C.muted)),
+  /// حالة كل خوادم المقاطع على شبكتك: عدد مقاطع كل خادم، يعمل أم محجوب، والسبب — مع إعادة الفحص.
+  void _diagnose(List<Reel> feed) {
+    final count = <String, int>{};
+    for (final g in _scope()) { final h = hostOf(g.tr); if (h.isNotEmpty) count[h] = (count[h] ?? 0) + 1; }
+    final hosts = count.keys.toList()..sort((a, b) => count[b]!.compareTo(count[a]!));
+    showModalBottomSheet(context: context, isScrollControlled: true, useSafeArea: true, builder: (c) => DraggableScrollableSheet(expand: false, initialChildSize: .8, builder: (c, sc) {
+      final ok = hosts.where((h) => (_hosts[h] as Map?)?['ok'] == true).fold<int>(0, (s, h) => s + count[h]!);
+      final bad = hosts.where((h) => (_hosts[h] as Map?)?['ok'] == false).fold<int>(0, (s, h) => s + count[h]!);
+      return ListView(controller: sc, padding: const EdgeInsets.all(S.s4), children: [
+        Text('خوادم المقاطع على شبكتك', style: Theme.of(c).textTheme.titleLarge),
+        Text('${count.values.fold<int>(0, (a, b) => a + b)} مقطعًا · ${hosts.length} خادمًا · يعمل $ok · محجوب $bad', style: const TextStyle(color: C.muted)),
         const SizedBox(height: S.s2),
-        if (sample.isEmpty) const Text('لا روابط مقاطع بعد — اضغط «جلب المقاطع» أولًا.'),
-        for (final r in results) ListTile(dense: true, contentPadding: EdgeInsets.zero, leading: Icon(r.$3 ? Icons.check_circle_rounded : Icons.cancel_rounded, color: r.$3 ? C.ok : C.danger),
-          title: Text(r.$1, style: const TextStyle(fontWeight: FontWeight.w600)), subtitle: Text(r.$2, style: const TextStyle(color: C.muted))),
-        if (results.length < sample.length) const Padding(padding: EdgeInsets.all(S.s2), child: LinearProgressIndicator()),
-        const SizedBox(height: S.s2),
-        const Text('صوّر هذه الشاشة وأرسلها — تحدد بالضبط سبب عدم التشغيل.', style: TextStyle(color: C.muted, fontSize: 12)),
-      ])));
+        const Text('المقاطع من الخوادم المحجوبة تُخفى تلقائيًا، ويُعاد فحصها كل 3 أيام (أو الآن). مع VPN تعمل كلها.', style: TextStyle(color: C.muted, fontSize: 12.5)),
+        Align(alignment: AlignmentDirectional.centerStart, child: TextButton.icon(onPressed: () { Navigator.pop(c); _prepare(force: true); }, icon: const Icon(Icons.refresh_rounded), label: const Text('إعادة فحص كل الخوادم الآن'))),
+        if (hosts.isEmpty) const Text('لا روابط مقاطع بعد — اضغط «جلب المقاطع» أولًا.'),
+        for (final h in hosts) () { final st = _hosts[h] as Map?;
+          return ListTile(dense: true, contentPadding: EdgeInsets.zero,
+            leading: Icon(st == null ? Icons.help_outline_rounded : st['ok'] == true ? Icons.check_circle_rounded : Icons.cancel_rounded, color: st == null ? C.muted : st['ok'] == true ? C.ok : C.danger),
+            title: Text('$h · ${count[h]} مقطع', style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(st == null ? 'لم يُفحص بعد' : '${st['why'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted))); }(),
+      ]);
     }));
   }
 
@@ -129,17 +158,17 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
   @override
   Widget build(BuildContext context) {
     final sigReady = ref.watch(reelSigProvider).hasValue && ref.watch(libraryProvider).hasValue;
-    if (sigReady && _feed == null) _build();
+    if (sigReady && _feed == null && !_preparing) { _feed = const []; _preparing = true; Future.microtask(_prepare); }
     final feed = _feed ?? const <Reel>[];
     return Scaffold(backgroundColor: Colors.black, body: Stack(children: [
-      if (!sigReady) const Center(child: CircularProgressIndicator())
+      if (!sigReady || (_preparing && feed.isEmpty)) Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const CircularProgressIndicator(), const SizedBox(height: S.s3), Text(_msg, style: const TextStyle(color: Colors.white70))]))
       else if (feed.isEmpty) _empty()
       else PageView.builder(controller: _pc, scrollDirection: Axis.vertical, itemCount: feed.length,
         onPageChanged: (i) => setState(() => _cur = i),
         itemBuilder: (c, i) => (i - _cur).abs() > 1 ? const ColoredBox(color: Colors.black)   // لا يُحمَّل إلا الحالي والمجاوران
           : _ReelPage(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, muted: _muted, liked: _liked.contains(feed[i].key),
               onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onMute: () => setState(() => _muted = !_muted),
-              onError: () { if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
+              onError: (why) { if (looksBlocked(why)) _markBlocked(feed[i].url, why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
       // الشريط العلوي
       SafeArea(child: Padding(padding: const EdgeInsets.symmetric(horizontal: S.s2), child: Row(children: [
         IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.close_rounded, color: Colors.white)),
@@ -171,7 +200,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 class _ReelPage extends ConsumerStatefulWidget {
   const _ReelPage({super.key, required this.reel, required this.active, required this.muted, required this.liked, required this.onViewed, required this.onLike, required this.onMenu, required this.onMute, required this.onError});
   final Reel reel; final bool active, muted, liked;
-  final void Function(double) onViewed; final VoidCallback onLike, onMenu, onMute, onError;
+  final void Function(double) onViewed; final VoidCallback onLike, onMenu, onMute; final void Function(String why) onError;
   @override ConsumerState<_ReelPage> createState() => _ReelPageState();
 }
 
@@ -185,7 +214,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final c = VideoPlayerController.networkUrl(Uri.parse(widget.reel.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
     _c = c;
     c.initialize().then((_) { if (!mounted) return; c.setLooping(true); c.setVolume(widget.muted ? 0 : 1); if (widget.active) c.play(); setState(() {}); })
-      .catchError((Object e) { if (mounted) { setState(() { _err = true; _why = '$e'; }); if (widget.active) widget.onError(); } });
+      .catchError((Object e) { if (mounted) { setState(() { _err = true; _why = '$e'; }); widget.onError('$e'); } });
     c.addListener(_tick);
   }
 
@@ -203,7 +232,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final c = _c; if (c == null) return;
     if (o.muted != widget.muted) c.setVolume(widget.muted ? 0 : 1);
     if (o.active && !widget.active) { c.pause(); widget.onViewed(_frac); _maxPos = Duration.zero; _loops = 0; c.seekTo(Duration.zero); }
-    if (!o.active && widget.active) { if (_err) { widget.onError(); } else if (c.value.isInitialized && !_paused) { c.play(); } }
+    if (!o.active && widget.active) { if (_err) { widget.onError(_why); } else if (c.value.isInitialized && !_paused) { c.play(); } }
   }
 
   @override
@@ -275,11 +304,11 @@ Future<(bool, String)> probeVideoUrl(String url) async {
     if (webm) return (false, 'صيغة WebM — لا يشغّلها الآيفون');
     if (ct.contains('text/html')) return (false, 'الرابط صفحة ويب وليس ملف فيديو');
     if (mp4 || hls || ct.startsWith('video/') || ct.contains('mpegurl')) return (true, 'يعمل (${hls ? 'HLS' : mp4 ? 'MP4' : ct})');
-    return (false, 'رد غير متوقع ($ct، ${r.statusCode})');
+    return (true, 'قد يعمل — نوع غير معتاد ($ct) يُجرَّب في المشغّل');
   } on SourceError catch (e) { return (false, e.msg); }
   catch (e) {
     final s = '$e';
-    if (s.contains('reset') || s.contains('Handshake') || s.contains('closed')) return (false, 'الاتصال يُقطع — غالبًا محجوب على شبكتك');
+    if (looksBlocked(s)) return (false, 'محجوب على شبكتك (الاتصال يُقطع أثناء التشفير)');
     if (s.contains('Timeout')) return (false, 'لا رد (مهلة)');
     return (false, s.length > 90 ? s.substring(0, 90) : s);
   }

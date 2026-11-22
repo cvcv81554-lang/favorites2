@@ -65,4 +65,24 @@ void main() {
     expect(trailerOf({'trailer': 'http://insecure.test/d.mp4'}), '');
     expect(trailerOf({}), '');
   });
+
+  test('الخوادم: المحجوب لا يُعرض، غير المفحوص يُجرَّب، وإعادة الفحص بمواعيدها', () {
+    final now = DateTime(2026, 11, 22).millisecondsSinceEpoch;
+    final hosts = <String, dynamic>{'cdn.test': {'ok': false, 't': now}};
+    final f = rankReels(groups, t, const ReelSignals({}, {}), playable: (u) => hostUsable(hosts, u));
+    expect(f, isEmpty);                                                   // كل المقاطع على خادم محجوب
+    expect(rankReels(groups, t, const ReelSignals({}, {}), playable: (u) => hostUsable({}, u)), isNotEmpty);   // غير مفحوص ⇒ يُجرَّب
+    expect(hostStale({'ok': false, 't': now - 2 * 86400000}, now), isFalse);
+    expect(hostStale({'ok': false, 't': now - 4 * 86400000}, now), isTrue);
+    expect(hostStale({'ok': true, 't': now - 10 * 86400000}, now), isFalse);
+    expect(hostStale(null, now), isTrue);
+    expect(hostOf('https://CDN.Test/a.mp4'), 'cdn.test');
+  });
+
+  test('خطأ المشغّل الدال على الحجب يُعرف (TLS / -1200 / reset)', () {
+    expect(looksBlocked('NSErrorClientException: A TLS error caused the secure connection to fail'), isTrue);
+    expect(looksBlocked('PlatformException(VideoError, Failed to load video: NSURLErrorDomain -1200)'), isTrue);
+    expect(looksBlocked('Connection reset by peer'), isTrue);
+    expect(looksBlocked('Failed to load video: 404'), isFalse);
+  });
 }
