@@ -9,6 +9,7 @@ import 'works.dart';
 /// إشارة كل عمل لذوقك: تقييم عالٍ قوي، مشاهدة/مفضلة متوسطة، «للمشاهدة» خفيفة، تقييم منخفض سلبي.
 double workSignal(WorkGroup g) {
   if (g.r >= 1) return (g.r - 2.5) / 1.5;          // 5⇒+1.67، 4⇒+1، 3⇒+.33، 2⇒−.33، 1⇒−1
+  if (g.rc.isNotEmpty) { final a = g.rc.values.reduce((x, y) => x + y) / g.rc.length; return (a - 2.5) / 1.5; }   // التقييم بالمعايير
   var s = 0.0;
   if (g.seen) s += .6;
   if (g.fav) s += .8;
@@ -57,7 +58,7 @@ List<WorkPick> recommendWorks(Iterable<WorkGroup> all, WorkTaste t, {int limit =
   final out = <WorkPick>[];
   final t0 = todayStr();
   for (final g in all) {
-    if (g.seen || g.isUpcoming || g.r > 0) continue;
+    if (g.seen || g.isUpcoming || g.r > 0 || g.rc.isNotEmpty) continue;
     if (g.date.isNotEmpty && g.date.compareTo(t0) > 0) continue;
     var score = 0.0; final why = <String>[];
     final st = t.keys['st:${norm(g.s)}'];

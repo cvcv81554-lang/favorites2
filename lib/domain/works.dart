@@ -12,6 +12,8 @@ class WorkGroup {
   int r = 0, du = 0, a = 0;
   bool seen = false, q = false, upc = false, fav = false, rec = false;
   final Set<String> tg = {}, ls = {};
+  /// تقييم بمعايير (الأداء، التصوير، القصة) — حقل اختياري جديد «rc».
+  final Map<String, int> rc = {};
   final List<Performer> who = [];
   final List<WorkRef> refs = [];
   WorkGroup(this.key);
@@ -45,6 +47,7 @@ class WorkGroup {
     if (on(w['upc'])) upc = true;
     if (on(w['fav'])) fav = true;
     if (on(w['rec'])) rec = true;
+    final m = w['rc']; if (m is Map) { m.forEach((k, v) { if (v is num && v > 0 && (rc['$k'] ?? 0) < v) rc['$k'] = v.toInt(); }); }
     for (final x in (w['tg'] as List? ?? const [])) { if (x is String) tg.add(x); }
     for (final x in (w['ls'] as List? ?? const [])) { if (x is String) ls.add(x); }
     if (!who.contains(it)) who.add(it);

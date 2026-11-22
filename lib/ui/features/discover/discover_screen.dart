@@ -288,7 +288,12 @@ class TasteCard extends ConsumerWidget {
       for (final b in show) _bar(b),
       if (!t.insufficient && show.isEmpty) const Text('لا نمط واضح: ذوقك متنوع جدًا في الخصائص الموثّقة.', style: TextStyle(color: C.muted)),
       const SizedBox(height: 4),
-      const Align(alignment: AlignmentDirectional.centerEnd, child: Text('التفاصيل ›', style: TextStyle(color: C.gold, fontSize: 12.5, fontWeight: FontWeight.w600))),
+      Row(children: [
+        TextButton.icon(onPressed: () => context.push('/taste-map'), icon: const Icon(Icons.scatter_plot_rounded, size: 18), label: const Text('خريطة ذوقك')),
+        TextButton.icon(onPressed: () => context.push('/taste-map?tab=1'), icon: const Icon(Icons.timeline_rounded, size: 18), label: const Text('عبر الزمن')),
+        const Spacer(),
+        const Text('التفاصيل ›', style: TextStyle(color: C.gold, fontSize: 12.5, fontWeight: FontWeight.w600)),
+      ]),
     ]))));
   }
 

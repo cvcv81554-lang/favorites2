@@ -13,6 +13,8 @@ import '../../core/net_image.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../../domain/insights.dart' show eraAlbums;
+import 'swipe_sort_screen.dart';
 
 class StudioState { final List<StudioImg> imgs; final int since, last; final bool busy; final String msg, err;
   const StudioState({this.imgs = const [], this.since = 0, this.last = 0, this.busy = false, this.msg = '', this.err = ''});
@@ -45,6 +47,16 @@ class Studio extends AsyncNotifier<StudioState> {
   }
 
   Future<void> toggleLike(StudioImg x) async { x.like = !x.like; await (await ref.read(studioRepoProvider.future)).put([x]); state = AsyncData(s.copy(imgs: [...s.imgs])); }
+  /// الفرز السريع: إعجاب / تخطٍّ / إخفاء — كلها تعلّمها «شوهدت». [undo] يعيد حالتها السابقة.
+  Future<void> sortAs(StudioImg x, {bool? like, bool? hid}) async {
+    if (like != null) x.like = like; if (hid != null) x.hid = hid;
+    if (x.seen == 0) x.seen = DateTime.now().millisecondsSinceEpoch;
+    await (await ref.read(studioRepoProvider.future)).put([x]); state = AsyncData(s.copy(imgs: [...s.imgs]));
+  }
+  Future<void> restore(StudioImg x, {required int seen, required bool like, required bool hid}) async {
+    x.seen = seen; x.like = like; x.hid = hid;
+    await (await ref.read(studioRepoProvider.future)).put([x]); state = AsyncData(s.copy(imgs: [...s.imgs]));
+  }
   Future<void> markSeen(StudioImg x) async { if (x.seen > 0) return; x.seen = DateTime.now().millisecondsSinceEpoch; await (await ref.read(studioRepoProvider.future)).put([x]); }
 
   static List<StudioImg> _demo() { final now = DateTime.now().millisecondsSinceEpoch; return [for (var i = 0; i < 60; i++) StudioImg(id: 'd$i', pid: 'demo-${1 + i % 18}', url: 'https://img.test/${i % 3 == 0 ? 'w' : 'p'}${i % (i % 3 == 0 ? 6 : 12)}.png', src: ['stash', 'scene', 'tpdb'][i % 3], kind: i % 3 == 0 ? 'still' : 'portrait', w: i % 4 == 0 ? 4000 : 1200, h: i % 4 == 0 ? 6000 : 1800, found: now - i * 3600000 * 3, like: i % 7 == 0)]; }
@@ -83,8 +95,9 @@ class _StudioScreenState extends ConsumerState<StudioScreen> {
   Widget build(BuildContext context) {
     final st = ref.watch(studioProvider).value ?? const StudioState();
     final lib = {for (final p in ref.watch(libraryProvider).value ?? const <Performer>[]) p.id: p};
-    final imgs = st.imgs.where((x) => lib.containsKey(x.pid)).toList();     // صور ممثلات المكتبة الحالية فقط (والبوابة مطبقة على المكتبة)
+    final imgs = st.imgs.where((x) => lib.containsKey(x.pid) && !x.hid).toList();     // صور ممثلات المكتبة الحالية فقط (والبوابة مطبقة على المكتبة)، بلا المخفية
     final fresh = (imgs.where((x) => st.since > 0 && x.found > st.since).toList()..sort((a, b) => b.found.compareTo(a.found)));
+    final unseen = imgs.where((x) => x.seen == 0).length;
     final liked = imgs.where((x) => x.like).toList()..sort((a, b) => b.found.compareTo(a.found));
     final all = [...imgs]..sort((a, b) => b.longSide != a.longSide ? b.longSide.compareTo(a.longSide) : b.found.compareTo(a.found));
     final byP = <String, List<StudioImg>>{}; for (final x in imgs) { (byP[x.pid] ??= []).add(x); }
@@ -101,10 +114,14 @@ class _StudioScreenState extends ConsumerState<StudioScreen> {
       ]),
       const SizedBox(height: S.s3),
       // زر الاكتشاف واضح وكبير مع حالة التقدم وآخر تحديث
-      SizedBox(width: double.infinity, child: FilledButton.icon(
-        onPressed: st.busy ? null : n.discover,
-        icon: st.busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.travel_explore_rounded),
-        label: Text(st.busy ? st.msg : 'ابحث عن صور جديدة'))),
+      Row(children: [
+        Expanded(child: FilledButton.icon(
+          onPressed: st.busy ? null : n.discover,
+          icon: st.busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.travel_explore_rounded),
+          label: Text(st.busy ? st.msg : 'ابحث عن صور جديدة', maxLines: 1, overflow: TextOverflow.ellipsis))),
+        if (unseen > 0) ...[const SizedBox(width: S.s2), FilledButton.tonalIcon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SwipeSortScreen())),
+          icon: const Icon(Icons.swipe_rounded), label: Text('فرز $unseen'))],
+      ]),
       if (!st.busy && st.last > 0) Padding(padding: const EdgeInsets.only(top: 4), child: Text('آخر بحث: ${_ago(st.last)} · من StashDB وThePornDB وصور المشاهد', style: const TextStyle(color: C.muted, fontSize: 12))),
       if (st.err.isNotEmpty) Padding(padding: const EdgeInsets.only(top: S.s2), child: Row(children: [
         Expanded(child: Text(st.err, style: const TextStyle(color: C.muted))),
@@ -187,8 +204,21 @@ class _StudioScreenState extends ConsumerState<StudioScreen> {
   static void _openGrid(BuildContext context, String title, List<StudioImg> l, Map<String, Performer> lib, {String? pid}) => Navigator.of(context).push(MaterialPageRoute(builder: (c) => Scaffold(
     appBar: AppBar(title: Text(title), actions: [if (pid != null) TextButton.icon(onPressed: () { Navigator.pop(c); context.push('/p/$pid'); }, icon: const Icon(Icons.person_rounded), label: const Text('ملفها'))]),
     body: Consumer(builder: (c, ref, _) { ref.watch(studioProvider);   // يتحدّث ♥ فورًا
-      return GridView.builder(padding: const EdgeInsets.all(S.s2), itemCount: l.length,
-        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: MediaQuery.sizeOf(c).width < 600 ? 140 : 210, mainAxisSpacing: 4, crossAxisSpacing: 4, childAspectRatio: 3 / 4),
+      final delegate = SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: MediaQuery.sizeOf(c).width < 600 ? 140 : 210, mainAxisSpacing: 4, crossAxisSpacing: 4, childAspectRatio: 3 / 4);
+      final p = pid == null ? null : lib[pid];
+      // صور ممثلة واحدة: ألبومات حسب الحقبة (سنة العمل للقطات المشاهد، والصور الشخصية وحدها)
+      final eras = p == null ? const <(String, List<int>)>[] : eraAlbums(p, [for (final x in l) (x.url, x.kind)]);
+      if (eras.length > 1) {
+        return CustomScrollView(slivers: [
+          for (final e in eras) ...[
+            SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s3, S.s4, S.s3, S.s2), child: Text('${e.$1} · ${e.$2.length}', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 15)))),
+            SliverPadding(padding: const EdgeInsets.symmetric(horizontal: S.s2), sliver: SliverGrid.builder(gridDelegate: delegate, itemCount: e.$2.length,
+              itemBuilder: (c, i) { final idx = e.$2[i]; return _Tile(x: l[idx], name: '', onTap: () => openViewer(c, l, idx, lib)); })),
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 60)),
+        ]);
+      }
+      return GridView.builder(padding: const EdgeInsets.all(S.s2), itemCount: l.length, gridDelegate: delegate,
         itemBuilder: (c, i) => _Tile(x: l[i], name: pid != null ? '' : lib[l[i].pid]?.name ?? '', onTap: () => openViewer(c, l, i, lib))); }),
   )));
 }

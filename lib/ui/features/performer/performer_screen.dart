@@ -15,6 +15,7 @@ import '../../../domain/sanitize.dart';
 import '../../../domain/works.dart' show groupKeyOf, sceneIdOf;
 import '../../core/posters.dart';
 import '../works/works_screen.dart';
+import 'insights_widgets.dart';
 import '../sources/source_search.dart';
 import '../studio/studio_screen.dart';
 import '../tools/tools_screen.dart';
@@ -110,6 +111,8 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
             onPressed: () async { final u = accUrl(a); if (u == null) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('رابط غير صالح'))); return; } await launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication); })])],
           if (p.notes.isNotEmpty) ...[const SizedBox(height: S.s4), Container(width: double.infinity, padding: const EdgeInsets.all(S.s4), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rMd), border: Border.all(color: C.line)), child: Text(p.notes, style: const TextStyle(height: 1.7)))],
         ]))),
+        SliverToBoxAdapter(child: WhyLikeSection(p: p)),
+        SliverToBoxAdapter(child: CareerSection(p: p)),
         SliverToBoxAdapter(child: SectionHeader('الأعمال', sub: '${works.length} عمل · شاهدت ${p.watchedCount}', action: '+ إضافة عمل', onAction: () => showAddWork(context, ref, p))),
         if (works.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s2), child: Align(alignment: AlignmentDirectional.centerStart,
           child: TextButton.icon(onPressed: () => showPerformerWorks(context, ref, p.id), icon: const Icon(Icons.grid_view_rounded, size: 18), label: const Text('عرض أعمالها في قسم الأعمال (بالصور والفلاتر)'))))),

@@ -13,11 +13,13 @@ class StudioImg {
   final String id, pid, url, src, kind; // src: stash | tpdb | scene ; kind: portrait | still
   final int w, h, found;
   int seen; bool like; List<String> albums;
-  StudioImg({required this.id, required this.pid, required this.url, required this.src, required this.kind, this.w = 0, this.h = 0, required this.found, this.seen = 0, this.like = false, List<String>? albums}) : albums = albums ?? [];
+  /// مخفية بالفرز السريع (حقل اختياري جديد «hid» — تبقى في القاعدة ولا تظهر في المعرض).
+  bool hid;
+  StudioImg({required this.id, required this.pid, required this.url, required this.src, required this.kind, this.w = 0, this.h = 0, required this.found, this.seen = 0, this.like = false, this.hid = false, List<String>? albums}) : albums = albums ?? [];
   int get longSide => w > h ? w : h;
-  Map<String, dynamic> toJson() => {'id': id, 'pid': pid, 'url': url, 'src': src, 'kind': kind, 'w': w, 'h': h, 'found': found, 'seen': seen, 'like': like, 'albums': albums};
+  Map<String, dynamic> toJson() => {'id': id, 'pid': pid, 'url': url, 'src': src, 'kind': kind, 'w': w, 'h': h, 'found': found, 'seen': seen, 'like': like, 'albums': albums, if (hid) 'hid': true};
   factory StudioImg.fromJson(Map<String, dynamic> j) => StudioImg(id: '${j['id']}', pid: '${j['pid']}', url: '${j['url']}', src: '${j['src'] ?? ''}', kind: '${j['kind'] ?? 'portrait'}',
-      w: (j['w'] as num?)?.toInt() ?? 0, h: (j['h'] as num?)?.toInt() ?? 0, found: (j['found'] as num?)?.toInt() ?? 0, seen: (j['seen'] as num?)?.toInt() ?? 0, like: j['like'] == true, albums: ((j['albums'] as List?) ?? const []).cast<String>());
+      w: (j['w'] as num?)?.toInt() ?? 0, h: (j['h'] as num?)?.toInt() ?? 0, found: (j['found'] as num?)?.toInt() ?? 0, seen: (j['seen'] as num?)?.toInt() ?? 0, like: j['like'] == true, hid: j['hid'] == true, albums: ((j['albums'] as List?) ?? const []).cast<String>());
 
   /// صورة الشبكة: StashDB يدعم رسميًا ?size=300|600|1280 (stash-box routes_image.go) — أخف بكثير من الأصل.
   String get thumb => sized(url, 600);

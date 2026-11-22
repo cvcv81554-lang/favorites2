@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../domain/performer.dart';
 import '../../../domain/sanitize.dart';
+import '../../../domain/insights.dart' show workCriteria, criteriaAvg;
 import '../../../domain/work_taste.dart';
 import '../../../domain/works.dart';
 import '../../core/posters.dart';
@@ -191,7 +192,8 @@ class WorksScreen extends ConsumerWidget {
         ]))),
       body: SafeArea(bottom: false, child: CustomScrollView(slivers: [
         SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('الأعمال', style: Theme.of(context).textTheme.headlineSmall),
+          Row(children: [Expanded(child: Text('الأعمال', style: Theme.of(context).textTheme.headlineSmall)),
+            FilledButton.tonalIcon(onPressed: () => context.push('/evening'), icon: const Icon(Icons.nightlight_round), label: const Text('سهرة'))]),
           const SizedBox(height: S.s3),
           Row(children: [
             stat('${all.length}', 'عمل', C.text), const SizedBox(width: 8),
@@ -419,6 +421,18 @@ class _WorkSheetState extends ConsumerState<_WorkSheet> {
         const Text('تقييمي'), const SizedBox(width: S.s3),
         for (var i = 1; i <= 5; i++) IconButton(visualDensity: VisualDensity.compact, tooltip: '$i', onPressed: () => _apply(g, (w) { if (g.r == i) { w.remove('r'); } else { w['r'] = i; } }),
           icon: Icon(g.r >= i ? Icons.star_rounded : Icons.star_outline_rounded, color: C.gold)),
+      ]),
+      // تقييم بالمعايير (اختياري): إن لم يكن لك تقييم عام يصبح المتوسط تقييمك، وذوق الأعمال يتعلم منه
+      for (final e in workCriteria.entries) Row(children: [
+        SizedBox(width: 64, child: Text(e.value, style: const TextStyle(color: C.muted, fontSize: 13))),
+        for (var i = 1; i <= 5; i++) IconButton(visualDensity: VisualDensity.compact, iconSize: 20, tooltip: '${e.value} $i',
+          onPressed: () => _apply(g, (w) {
+            final rc = Map<String, dynamic>.from(w['rc'] as Map? ?? {});
+            if ((g.rc[e.key] ?? 0) == i) { rc.remove(e.key); } else { rc[e.key] = i; }
+            if (rc.isEmpty) { w.remove('rc'); } else { w['rc'] = rc; }
+            if (g.r == 0 || w['rauto'] == 1) { final a = criteriaAvg(rc); if (a > 0) { w['r'] = a.round(); w['rauto'] = 1; } else if (w['rauto'] == 1) { w.remove('r'); w.remove('rauto'); } }
+          }),
+          icon: Icon((g.rc[e.key] ?? 0) >= i ? Icons.circle : Icons.circle_outlined, size: 14, color: C.rose)),
       ]),
       const SizedBox(height: S.s2),
       TextField(controller: _note, maxLines: 2, decoration: const InputDecoration(labelText: 'ملاحظة / لحظة مفضلة', hintText: 'مثال: 12:30 أفضل مشهد'),
