@@ -9,6 +9,7 @@ import '../domain/age_gate.dart';
 import '../domain/sanitize.dart';
 import '../domain/works.dart' show sceneIdsOf, normTitle, idConflict, sameWork;
 import 'keys.dart';
+import 'platform/http_client.dart';
 
 /// خطأ مصدر بنص عربي واضح.
 class SourceError implements Exception {
@@ -28,7 +29,7 @@ class Candidate {
 }
 
 const _timeout = Duration(seconds: 20);
-http.Client Function() _newClient = http.Client.new;
+http.Client Function() _newClient = newHttpClient;
 http.Client _pool = _newClient();
 /// عميل HTTP قابل للاستبدال في الاختبارات.
 http.Client sourceClient = _pool;

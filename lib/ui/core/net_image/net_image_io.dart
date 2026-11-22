@@ -8,6 +8,8 @@ import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../data/platform/http_client.dart';
+
 /// صورة شبكة بذاكرة على القرص (مجلد Caches الخاص بالتطبيق — على الجهاز فقط، خارج نسخ iCloud، والنظام قد يفرّغه عند امتلاء الجهاز).
 /// - تُنزّل مرة واحدة ثم تُقرأ من الجهاز في كل فتح لاحق (لا طلبات متكررة).
 /// - تنزيلان متزامنان لنفس الرابط يُدمجان في طلب واحد.
@@ -33,7 +35,7 @@ class DiskImage extends ImageProvider<DiskImage> {
 
 Directory? _dir; bool _pruned = false;
 final _inflight = <String, Future<Uint8List>>{};
-http.Client _client = http.Client();
+http.Client _client = newHttpClient();   // iPhone: شبكات Apple الأصلية (HTTP/3)
 @visibleForTesting set diskImageClient(http.Client c) => _client = c;
 @visibleForTesting set diskImageDir(Directory d) => _dir = d;
 

@@ -1,16 +1,16 @@
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:http/http.dart' as http;
 
 import 'platform/db_factory.dart';
+import 'sources.dart' show sourceClient;
 
 /// ينزّل صورة من رابط https ويحفظها ملفًا على الجهاز (تعمل بلا اتصال بعدها). على الويب يبقى الرابط.
 /// يتحقق من أن المحتوى صورة فعلًا (البايتات الأولى) وحجمها معقول.
 Future<String> downloadPhoto(String url, String name) async {
   if (kIsWeb || !url.startsWith('https://')) return url;
   try {
-    final r = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 30));
+    final r = await sourceClient.get(Uri.parse(url)).timeout(const Duration(seconds: 30));   // نفس عميل المصادر (iPhone: HTTP/3)
     if (r.statusCode != 200 || r.bodyBytes.length < 64 || r.bodyBytes.length > 25 * 1024 * 1024) return url;
     final b = r.bodyBytes; final ext = _ext(b);
     if (ext == null) return url;
