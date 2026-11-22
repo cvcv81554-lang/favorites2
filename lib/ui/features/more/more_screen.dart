@@ -344,26 +344,29 @@ class _FontSection extends ConsumerWidget {
   }
 }
 
-/// حالة الاتصال بالمصدرين على الشبكة الحالية (يكشف الحجب من مزوّد الإنترنت).
+/// حالة الاتصال بالمصدرين على الشبكة الحالية — بطلبات حقيقية بمفتاحك، مع السبب الدقيق لأي فشل.
 class _Reach extends StatefulWidget {
   const _Reach();
   @override State<_Reach> createState() => _ReachState();
 }
 class _ReachState extends State<_Reach> {
-  (bool, bool)? _r; bool _busy = false;
+  List<(String, bool, String)>? _r; bool _busy = false;
   Future<void> _check() async {
     setState(() => _busy = true);
-    final r = await Future.wait([sourceReachable('https://stashdb.org/'), sourceReachable('https://api.theporndb.net/')]);
-    if (mounted) setState(() { _r = (r[0], r[1]); _busy = false; });
+    final ks = await ApiKeys.get(ApiKeys.stash), kt = await ApiKeys.get(ApiKeys.tpdb);
+    final r = await Future.wait([
+      ks.isEmpty ? Future.value((false, 'لا مفتاح')) : checkSource(() => StashDB.test(ks)),
+      kt.isEmpty ? Future.value((false, 'لا مفتاح')) : checkSource(() => TPDB.test(kt)),
+    ]);
+    if (mounted) setState(() { _r = [('StashDB', r[0].$1, r[0].$2), ('ThePornDB', r[1].$1, r[1].$2)]; _busy = false; });
   }
   @override
-  Widget build(BuildContext context) {
-    String st(bool ok) => ok ? 'متصل ✓' : 'محجوب على شبكتك ✕';
-    return ListTile(
-      leading: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.network_check_rounded, color: C.gold),
-      title: const Text('فحص الاتصال بالمصدرين'),
-      subtitle: Text(_r == null ? 'يتحقق هل StashDB وThePornDB متاحان على شبكتك الحالية' : 'StashDB: ${st(_r!.$1)} · ThePornDB: ${st(_r!.$2)}${_r!.$2 ? '' : '\nThePornDB محجوب من مزوّد الإنترنت على هذه الشبكة — يعمل تلقائيًا متى اتصلت بشبكة لا تحجبه.'}',
-        style: TextStyle(color: _r != null && !(_r!.$1 && _r!.$2) ? C.gold : C.muted)),
-      onTap: _busy ? null : _check);
-  }
+  Widget build(BuildContext context) => ListTile(
+    leading: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.network_check_rounded, color: C.gold),
+    title: const Text('فحص الاتصال بالمصدرين'),
+    subtitle: _r == null ? const Text('يجرّب StashDB وThePornDB بمفاتيحك على شبكتك الحالية', style: TextStyle(color: C.muted))
+      : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (final x in _r!) Padding(padding: const EdgeInsets.only(top: 4), child: Text('${x.$1}: ${x.$2 ? 'يعمل ✓' : 'لا يعمل ✕ — ${x.$3}'}', style: TextStyle(color: x.$2 ? C.ok : C.gold, height: 1.4))),
+        ]),
+    onTap: _busy ? null : _check);
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 
@@ -27,9 +28,19 @@ class Candidate {
 }
 
 const _timeout = Duration(seconds: 20);
-http.Client _pool = http.Client();
+http.Client Function() _newClient = http.Client.new;
+http.Client _pool = _newClient();
 /// عميل HTTP قابل للاستبدال في الاختبارات.
 http.Client sourceClient = _pool;
+@visibleForTesting void usePooledClientForTest(http.Client Function() f) { _newClient = f; _pool = f(); sourceClient = _pool; }
+
+/// استبدال الاتصال المشترك بعد فشل: **لا يُغلق القديم فورًا** — قد تكون عليه طلبات أخرى جارية لمصدر آخر
+/// (كان إغلاقه يقطع طلب StashDB الجاري حين يفشل ThePornDB المحجوب). يُغلق بعد دقيقة حين تنتهي طلباته.
+void _renewPool(http.Client failed) {
+  if (!identical(sourceClient, _pool) || !identical(failed, _pool)) return;   // جُدّد مسبقًا أو عميل اختبار
+  final old = _pool; _pool = _newClient(); sourceClient = _pool;
+  Timer(const Duration(seconds: 60), () { try { old.close(); } catch (_) {} });
+}
 
 /// إرسال طلب لمصدر رسمي مع إعادة المحاولة:
 /// - انقطاع الاتصال (Connection reset / مهلة / فشل اتصال): يحدث غالبًا حين يُعاد استخدام اتصال قديم أغلقه الخادم أو iOS
@@ -39,14 +50,15 @@ Future<http.Response> sendWithRetry(String source, Future<http.Response> Functio
   Object? last;
   for (var attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await Future<void>.delayed(Duration(milliseconds: 700 * attempt * attempt));
+    final c = sourceClient;
     try {
-      final r = await send(sourceClient).timeout(_timeout);
+      final r = await send(c).timeout(_timeout);
       if ((r.statusCode == 429 || r.statusCode >= 500) && attempt < 2) { last = r; continue; }
       return r;
     } on SourceError { rethrow; }
     catch (e) {
       last = e;
-      if (identical(sourceClient, _pool)) { try { _pool.close(); } catch (_) {} _pool = http.Client(); sourceClient = _pool; }   // اتصال جديد بدل القديم المقطوع
+      _renewPool(c);   // اتصال جديد للمحاولة التالية (بلا قطع طلبات المصادر الأخرى)
     }
   }
   if (last is http.Response) return last;
@@ -56,9 +68,11 @@ Future<http.Response> sendWithRetry(String source, Future<http.Response> Functio
     : 'تعذّر الاتصال بـ $source (الشبكة ضعيفة أو انقطعت) — تحقّق من الإنترنت وحاول مجددًا', reset ? -2 : null);   // -2 = محجوب على هذه الشبكة
 }
 
-/// هل المصدر متاح على الشبكة الحالية؟ (طلب خفيف بلا مفتاح — أي رد من الخادم يعني أنه متاح)
-Future<bool> sourceReachable(String url) async {
-  try { await sendWithRetry('', (c) => c.get(Uri.parse(url))); return true; } catch (_) { return false; }
+/// فحص حقيقي لمصدر بمفتاحك (نفس طلبات التطبيق): (يعمل؟، السبب إن فشل).
+Future<(bool, String)> checkSource(Future<bool> Function() call) async {
+  try { await call(); return (true, ''); }
+  on SourceError catch (e) { return (false, e.msg); }
+  catch (e) { return (false, '$e'); }
 }
 
 // ===================== StashDB (GraphQL الرسمي) =====================
