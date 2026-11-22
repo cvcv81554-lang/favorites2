@@ -120,7 +120,12 @@ void main() {
 
   test('انقطاع دائم ⇒ رسالة عربية واضحة (لا نص الخطأ الخام)', () async {
     sourceClient = MockClient((r) async => throw http.ClientException('Connection reset by peer'));
-    await expectLater(TPDB.search('Elsa'), throwsA(isA<SourceError>().having((e) => e.msg, 'msg', contains('تعذّر الاتصال بـ ThePornDB'))));
+    await expectLater(TPDB.search('Elsa'), throwsA(isA<SourceError>().having((e) => e.msg, 'msg', contains('ThePornDB غير متاح على شبكتك'))));
+    // بعد اكتشاف الحجب: لا طلبات جديدة لفترة (رد فوري بلا انتظار)
+    var n = 0; sourceClient = MockClient((r) async { n++; return http.Response('{}', 200); });
+    await expectLater(TPDB.search('Elsa'), throwsA(isA<SourceError>().having((e) => e.status, 'status', -2)));
+    expect(n, 0);
+    TPDB.resetBlock();
   });
 
   test('سجلاتها بأسمائها الأخرى: اسم مميّز من أسمائها ⇒ نفس الشخص؛ اسم قصير شائع بلا تاريخ ⇒ لا', () {

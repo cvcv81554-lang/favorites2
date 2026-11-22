@@ -120,6 +120,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
       _group('المصادر الرسمية', [
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
+        const _Reach(),
         const _DualTools(),
       ]),
       _group('الخط', [const _FontSection()]),
@@ -340,5 +341,29 @@ class _FontSection extends ConsumerWidget {
         }),
       if (on) ListTile(leading: const Icon(Icons.restart_alt_rounded, color: C.muted), title: const Text('الرجوع للخط الافتراضي'), onTap: n.reset),
     ]);
+  }
+}
+
+/// حالة الاتصال بالمصدرين على الشبكة الحالية (يكشف الحجب من مزوّد الإنترنت).
+class _Reach extends StatefulWidget {
+  const _Reach();
+  @override State<_Reach> createState() => _ReachState();
+}
+class _ReachState extends State<_Reach> {
+  (bool, bool)? _r; bool _busy = false;
+  Future<void> _check() async {
+    setState(() => _busy = true);
+    final r = await Future.wait([sourceReachable('https://stashdb.org/'), sourceReachable('https://api.theporndb.net/')]);
+    if (mounted) setState(() { _r = (r[0], r[1]); _busy = false; });
+  }
+  @override
+  Widget build(BuildContext context) {
+    String st(bool ok) => ok ? 'متصل ✓' : 'محجوب على شبكتك ✕';
+    return ListTile(
+      leading: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.network_check_rounded, color: C.gold),
+      title: const Text('فحص الاتصال بالمصدرين'),
+      subtitle: Text(_r == null ? 'يتحقق هل StashDB وThePornDB متاحان على شبكتك الحالية' : 'StashDB: ${st(_r!.$1)} · ThePornDB: ${st(_r!.$2)}${_r!.$2 ? '' : '\nThePornDB محجوب من مزوّد الإنترنت على هذه الشبكة — يعمل تلقائيًا متى اتصلت بشبكة لا تحجبه.'}',
+        style: TextStyle(color: _r != null && !(_r!.$1 && _r!.$2) ? C.gold : C.muted)),
+      onTap: _busy ? null : _check);
   }
 }

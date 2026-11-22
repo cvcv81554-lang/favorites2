@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 
 import '../domain/age_gate.dart';
@@ -49,7 +50,15 @@ Future<http.Response> sendWithRetry(String source, Future<http.Response> Functio
     }
   }
   if (last is http.Response) return last;
-  throw SourceError('تعذّر الاتصال بـ $source (انقطع الاتصال أو الشبكة ضعيفة) — تحقّق من الإنترنت وحاول مجددًا');
+  final reset = '$last'.contains('reset') || '$last'.contains('Handshake') || '$last'.contains('Connection closed');
+  throw SourceError(reset
+    ? '$source غير متاح على شبكتك: الاتصال يُقطع فور طلبه (غالبًا محجوب من مزوّد الإنترنت). يكمل التطبيق بالمصدر الآخر، ويعمل $source تلقائيًا متى اتصلت بشبكة لا تحجبه.'
+    : 'تعذّر الاتصال بـ $source (الشبكة ضعيفة أو انقطعت) — تحقّق من الإنترنت وحاول مجددًا', reset ? -2 : null);   // -2 = محجوب على هذه الشبكة
+}
+
+/// هل المصدر متاح على الشبكة الحالية؟ (طلب خفيف بلا مفتاح — أي رد من الخادم يعني أنه متاح)
+Future<bool> sourceReachable(String url) async {
+  try { await sendWithRetry('', (c) => c.get(Uri.parse(url))); return true; } catch (_) { return false; }
 }
 
 // ===================== StashDB (GraphQL الرسمي) =====================
@@ -171,10 +180,17 @@ List<String> stashImages(Map<String, dynamic>? p) {
 // ===================== ThePornDB (REST الرسمي) =====================
 class TPDB {
   static const base = 'https://api.theporndb.net';
+  /// إن اكتُشف أنه محجوب على الشبكة: لا طلبات له لمدة 10 دقائق (لا انتظار بلا فائدة في كل عملية).
+  static int _blockedUntil = 0; static String _blockedMsg = '';
+  static bool get blocked => DateTime.now().millisecondsSinceEpoch < _blockedUntil;
+  @visibleForTesting static void resetBlock() => _blockedUntil = 0;
   static Future<Map<String, dynamic>> get(String path, [String? keyOverride]) async {
     final key = keyOverride ?? await ApiKeys.get(ApiKeys.tpdb);
     if (key.isEmpty) throw SourceError('أضف مفتاح ThePornDB من «المزيد»');
-    final r = await sendWithRetry('ThePornDB', (c) => c.get(Uri.parse('$base$path'), headers: {'Authorization': 'Bearer $key', 'Accept': 'application/json'}));
+    if (blocked && keyOverride == null) throw SourceError(_blockedMsg, -2);
+    final http.Response r;
+    try { r = await sendWithRetry('ThePornDB', (c) => c.get(Uri.parse('$base$path'), headers: {'Authorization': 'Bearer $key', 'Accept': 'application/json'})); }
+    on SourceError catch (e) { if (e.status == -2) { _blockedUntil = DateTime.now().millisecondsSinceEpoch + 600000; _blockedMsg = e.msg; } rethrow; }
     if (r.statusCode == 401 || r.statusCode == 403) throw SourceError('مفتاح ThePornDB غير صالح', r.statusCode);
     if (r.statusCode == 429) throw SourceError('ThePornDB: طلبات كثيرة، حاول بعد قليل', 429);
     if (r.statusCode != 200) throw SourceError('ThePornDB: خطأ ${r.statusCode}', r.statusCode);
