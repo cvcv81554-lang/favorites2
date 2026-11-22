@@ -8,7 +8,7 @@ class WorkRef { final Performer p; final int idx; const WorkRef(this.p, this.idx
 /// القيم: أول قيمة غير فارغة تفوز، والتقييم = الأعلى، والحالات (شوهد، للمشاهدة…) = أي مرجع.
 class WorkGroup {
   final String key;
-  String t = '', s = '', d = '', y = '', p = '', u = '', n = '', ds = '', wd = '';
+  String t = '', s = '', d = '', y = '', p = '', u = '', n = '', ds = '', wd = '', tr = '';   // tr: رابط الإعلان الرسمي
   int r = 0, du = 0, a = 0;
   bool seen = false, q = false, upc = false, fav = false, rec = false;
   final Set<String> tg = {}, ls = {};
@@ -35,6 +35,7 @@ class WorkGroup {
     if (d.isEmpty && s0(w['d']).isNotEmpty) { d = s0(w['d']); y = d.substring(0, 4); }
     if (y.isEmpty) y = s0(w['y']);
     if (p.isEmpty) p = s0(w['p']);
+    if (tr.isEmpty) tr = s0(w['tr']);
     if (u.isEmpty) u = s0(w['u']);
     if (n.isEmpty) n = s0(w['n']);
     if (ds.isEmpty) ds = s0(w['ds']);

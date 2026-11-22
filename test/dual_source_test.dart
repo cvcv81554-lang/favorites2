@@ -167,4 +167,13 @@ void main() {
     expect(isFontFile(Uint8List.fromList([0x00, 0x01, 0x00, 0x00, ...List.filled(20, 0)])), isTrue);
     expect(isFontFile(Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, ...List.filled(20, 0)])), isFalse);
   });
+
+  test('أعمال ThePornDB تحمل رابط الإعلان الرسمي (لقسم «مقاطع») ويُدمج في العمل الموجود', () async {
+    TPDB.resetBlock();
+    sourceClient = MockClient((r) async => http.Response(jsonEncode({'data': [{'id': 'T9', 'title': 'Trailer Scene', 'date': '2024-03-03', 'site': {'name': 'S'}, 'trailer': 'https://cdn.test/t9.mp4'}], 'meta': {'last_page': 1}}), 200));
+    final sc = await TPDB.scenes('P');
+    expect(sc.single['tr'], 'https://cdn.test/t9.mp4');
+    final m = mergeWorks([{'t': 'Trailer Scene', 's': 'S', 'd': '2024-03-03', 'ip': 'T9', 'w': 1}], sc);
+    expect(m.list.single['tr'], 'https://cdn.test/t9.mp4'); expect(m.list.single['w'], 1);
+  });
 }

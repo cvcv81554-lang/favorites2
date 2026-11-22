@@ -89,7 +89,7 @@ class _Spotlight extends StatelessWidget {
         Hero(tag: 'spot-${p.id}', child: Photo(p.cover, name: p.name, fallbacks: p.coverFallbacks, alignment: const Alignment(0, -.6))),
         const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, stops: [0, .35, 1], colors: [Color(0x990A0810), Color(0x000A0810), C.bg]))),
         Align(alignment: AlignmentDirectional.topStart, child: SafeArea(child: Padding(padding: const EdgeInsets.all(S.s4), child: Row(mainAxisSize: MainAxisSize.min, children: [const AppLogo(size: 34), const SizedBox(width: S.s2), Text('المفضلة', style: Theme.of(context).textTheme.titleLarge)])))),
-        Align(alignment: AlignmentDirectional.topEnd, child: SafeArea(child: Padding(padding: const EdgeInsets.all(S.s3), child: IconButton.filledTonal(tooltip: 'بحث شامل', onPressed: () => context.push('/find'), icon: const Icon(Icons.search_rounded))))),
+        Align(alignment: AlignmentDirectional.topEnd, child: SafeArea(child: Padding(padding: const EdgeInsets.all(S.s3), child: Row(mainAxisSize: MainAxisSize.min, children: [IconButton.filledTonal(tooltip: 'مقاطع', onPressed: () => context.push('/reels'), icon: const Icon(Icons.slow_motion_video_rounded)), const SizedBox(width: 6), IconButton.filledTonal(tooltip: 'بحث شامل', onPressed: () => context.push('/find'), icon: const Icon(Icons.search_rounded))])))),
         Positioned(left: S.s4, right: S.s4, bottom: S.s4, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('نجمة اليوم', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w600, letterSpacing: .3)),
           Text(p.name, style: Theme.of(context).textTheme.displaySmall),

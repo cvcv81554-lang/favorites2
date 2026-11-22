@@ -235,6 +235,7 @@ class TPDB {
           if ((s['duration'] as num?) != null && (s['duration'] as num) > 0) 'du': ((s['duration'] as num) > 180 ? (s['duration'] as num) / 60 : s['duration']).round(),
           if ('${s['description'] ?? ''}'.isNotEmpty) 'ds': _cut('${s['description']}', 280),
           if (safeHttps(img)) 'p': img, if (safeHttps(s['url'])) 'u': s['url'], 'ip': '${s['id']}',
+          if (trailerOf(s).isNotEmpty) 'tr': trailerOf(s),   // الإعلان الرسمي (لقسم «مقاطع»)
           'tg': [for (final t in (s['tags'] as List? ?? const []).take(8)) if (t is Map) '${t['name']}']});
       }
       final last = ((d['meta'] as Map?)?['last_page'] as num?)?.toInt() ?? 1;
@@ -283,4 +284,15 @@ String _bestImg(Object? imgs, {bool wide = false}) {
 ({List<Map<String, dynamic>> list, int removed}) dedupeWorks(List<Map<String, dynamic>> ws) {
   final m = mergeWorks(const [], ws);
   return (list: m.list, removed: ws.length - m.list.length);
+}
+
+
+/// رابط الإعلان الرسمي لمشهد ThePornDB (يُقرأ بتسامح: نص، أو {url}، أو قائمة) — https فقط.
+String trailerOf(Map s) {
+  for (final v in [s['trailer'], s['trailers'], (s['media'] as Map?)?['trailer']]) {
+    if (v is String && safeHttps(v)) return v;
+    if (v is Map && safeHttps(v['url'])) return '${v['url']}';
+    if (v is List) { for (final x in v) { if (x is String && safeHttps(x)) return x; if (x is Map && safeHttps(x['url'])) return '${x['url']}'; } }
+  }
+  return '';
 }

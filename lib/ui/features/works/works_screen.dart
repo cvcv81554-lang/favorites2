@@ -193,6 +193,7 @@ class WorksScreen extends ConsumerWidget {
       body: SafeArea(bottom: false, child: CustomScrollView(slivers: [
         SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s4, S.s4, 0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [Expanded(child: Text('الأعمال', style: Theme.of(context).textTheme.headlineSmall)),
+            IconButton.filledTonal(tooltip: 'مقاطع', onPressed: () => context.push('/reels'), icon: const Icon(Icons.slow_motion_video_rounded)), const SizedBox(width: 6),
             FilledButton.tonalIcon(onPressed: () => context.push('/evening'), icon: const Icon(Icons.nightlight_round), label: const Text('سهرة'))]),
           const SizedBox(height: S.s3),
           Row(children: [
