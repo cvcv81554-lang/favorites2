@@ -106,6 +106,7 @@ class TasteN extends AsyncNotifier<TasteState> {
       final feats = [for (final p in have) featuresOf(Map<String, dynamic>.from((cache[ck(p)] as Map)['d'] as Map))];
       final weights = [for (final p in have) tasteWeight(fav: p.fav, rating: p.rating.toDouble())];
       final prof = buildProfile(feats, total: pool.length, weights: weights, ignore: s.ignore);
+      if (prof.sufficient) await repo.kvSet('taste_prof', profileToJson(prof));   // لمهمة الخلفية: «ممثلة جديدة قريبة من ذوقك»
       final lines = describeProfile(prof);
       final bars = [for (final c in (prof.cats.values.where((c) => c.n >= 2).toList()..sort((a, b) => b.share.compareTo(a.share))))
         TraitBar(c.field, fieldNames[c.field] ?? c.field, [for (final x in c.topN(3)) (attrLabel(c.field, x.$1), x.$2)], c.n, c.strong)];
@@ -250,6 +251,16 @@ class TasteN extends AsyncNotifier<TasteState> {
   }
 
   /// تعلّم: أضافت (+) أو «ليست ذوقي» (−) — يُعدّل أوزان الخصائص، وتُزال من القائمة الحالية.
+  /// مرشحات جديدة وجدتها مهمة الخلفية (قريبة جدًا من ذوقك) ⇒ تُضاف بوسم «new» دون تكرار.
+  Future<void> addNew(List<TasteRec> l) async {
+    if (l.isEmpty) return;
+    final have = {for (final r in s.recs) r.id};
+    final fresh = [for (final r in l) if (!have.contains(r.id)) TasteRec(r.id, r.name, r.birth, r.country, r.image, r.score, r.why, r.diff, r.feats, {...r.tags, 'new'}.toList(), r.pdb)];
+    if (fresh.isEmpty) return;
+    final st = s.copy(recs: [...fresh, ...s.recs]); _set(st);
+    await _save(await ref.read(repoProvider.future), st);
+  }
+
   Future<void> feedback(String id, double delta) async {
     final repo = await ref.read(repoProvider.future);
     final r = s.recs.where((x) => x.id == id).firstOrNull;

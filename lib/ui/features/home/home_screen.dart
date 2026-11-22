@@ -25,13 +25,8 @@ class HomeScreen extends ConsumerWidget {
             return EmptyState(title: 'مكتبتك الخاصة', body: 'كل شيء يبقى على جهازك.\nابدأ باستيراد نسختك الاحتياطية من التطبيق السابق، أو أضف أول ممثلة.',
               actions: [FilledButton.icon(onPressed: () => context.go('/more'), icon: const Icon(Icons.download_rounded), label: const Text('استيراد نسخة احتياطية'))]);
           }
-          final day = DateTime.now(); final seed = day.year * 1000 + day.month * 40 + day.day;
           final favs = all.where((p) => p.fav).toList();
-          final base = favs.isNotEmpty ? favs : all;
-          // نجمة اليوم: من لها صور كاملة أولًا (لا الصورة المصغرة وحدها) — لتظهر بملء الشاشة بوضوح
-          var pool = base.where((p) => p.photos.isNotEmpty).toList();
-          if (pool.isEmpty) pool = base.where((p) => p.cover.isNotEmpty).toList();
-          final spot = pool.isEmpty ? all.first : pool[Random(seed).nextInt(pool.length)];
+          final spot = pickSpotlight(all, DateTime.now()) ?? all.first;   // نفس اختيار الويدجت
           final recent = [...all]..sort((a, b) => b.added.compareTo(a.added));
           final top = all.where((p) => p.rating >= 4).toList()..sort((a, b) => b.rating.compareTo(a.rating));
           final upc = all.where((p) => p.works.any(isUpcoming)).toList();
@@ -94,6 +89,7 @@ class _Spotlight extends StatelessWidget {
         Hero(tag: 'spot-${p.id}', child: Photo(p.cover, name: p.name, fallbacks: p.coverFallbacks, alignment: const Alignment(0, -.6))),
         const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, stops: [0, .35, 1], colors: [Color(0x990A0810), Color(0x000A0810), C.bg]))),
         Align(alignment: AlignmentDirectional.topStart, child: SafeArea(child: Padding(padding: const EdgeInsets.all(S.s4), child: Row(mainAxisSize: MainAxisSize.min, children: [const AppLogo(size: 34), const SizedBox(width: S.s2), Text('المفضلة', style: Theme.of(context).textTheme.titleLarge)])))),
+        Align(alignment: AlignmentDirectional.topEnd, child: SafeArea(child: Padding(padding: const EdgeInsets.all(S.s3), child: IconButton.filledTonal(tooltip: 'بحث شامل', onPressed: () => context.push('/find'), icon: const Icon(Icons.search_rounded))))),
         Positioned(left: S.s4, right: S.s4, bottom: S.s4, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('نجمة اليوم', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w600, letterSpacing: .3)),
           Text(p.name, style: Theme.of(context).textTheme.displaySmall),

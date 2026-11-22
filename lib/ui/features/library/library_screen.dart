@@ -36,6 +36,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             Text('المكتبة', style: Theme.of(context).textTheme.headlineSmall),
             Text(list.length == total ? '$total ممثلة' : '${list.length} من $total', style: const TextStyle(color: C.muted)),
           ])),
+          IconButton(tooltip: 'بحث شامل (ممثلات، أعمال، استوديوهات، وسوم)', onPressed: () => context.push('/find'), icon: const Icon(Icons.manage_search_rounded)),
           PopupMenuButton<SortBy>(
             tooltip: 'الترتيب', icon: const Icon(Icons.sort_rounded), initialValue: q.sort, onSelected: (s) => n.set(q.copy(sort: s)),
             itemBuilder: (_) => const [

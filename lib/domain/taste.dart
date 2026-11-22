@@ -132,3 +132,20 @@ Map<String, double> learn(Map<String, double> w, Map<String, Object> feats, doub
 
 /// وزن مفضلة في التحليل: المفضلة ★ أساس، والتقييم الأعلى يزيد الوزن (0.6..2).
 double tasteWeight({required bool fav, required double rating}) => ((fav ? 1.0 : .7) + (rating > 0 ? (rating - 3) * .25 : 0)).clamp(.6, 2.0);
+
+// ===== حفظ ملف الذوق (لاستخدامه في مهمة الخلفية: «ممثلة جديدة قريبة من ذوقك») =====
+Map<String, dynamic> profileToJson(TasteProfile p) => {
+  'total': p.total, 'analyzed': p.analyzed,
+  'cats': {for (final c in p.cats.values) c.field: {'c': c.counts, 'n': c.n, 'w': c.wsum}},
+  'nums': {for (final x in p.nums.values) x.field: [x.mean, x.sd, x.lo, x.hi, x.n]},
+};
+TasteProfile? profileFromJson(Object? j) {
+  if (j is! Map) return null;
+  try {
+    final cats = <String, CatStat>{};
+    (j['cats'] as Map? ?? const {}).forEach((k, v) { final m = v as Map; cats['$k'] = CatStat('$k', {for (final e in (m['c'] as Map).entries) '${e.key}': (e.value as num).toDouble()}, (m['n'] as num).toInt(), (m['w'] as num).toDouble()); });
+    final nums = <String, NumStat>{};
+    (j['nums'] as Map? ?? const {}).forEach((k, v) { final l = (v as List).cast<num>(); nums['$k'] = NumStat('$k', l[0].toDouble(), l[1].toDouble(), l[2].toDouble(), l[3].toDouble(), l[4].toInt()); });
+    return TasteProfile((j['total'] as num?)?.toInt() ?? 0, (j['analyzed'] as num?)?.toInt() ?? 0, cats, nums);
+  } catch (_) { return null; }
+}

@@ -52,6 +52,8 @@ for (const [t, n] of [[6, 'performers'], [7, 'studios'], [5, 'diary'], [1, 'watc
   await shoot(phone, 'phone-06c-works-' + n, '/works?wt=' + t, async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 560); });
 }
 await shoot(phone, 'phone-06d-works-focus', '/works?wp=demo-4', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 560); });
+await shoot(phone, 'phone-06e-works-foryou', '/works?wt=8', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 560); });
+await shoot(phone, 'phone-11-find', '/find', async p => { await p.keyboard.type('Studio'); });
 await shoot(phone, 'phone-07-discover', '/discover');
 await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 900); });
 await shoot(desk, 'desk-05-discover', '/discover');

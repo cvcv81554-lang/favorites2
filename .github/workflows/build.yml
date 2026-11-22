@@ -78,8 +78,35 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: ipa, path: dist/Favorites2.ipa, if-no-files-found: error }
 
+  # نسخة بالويدجت (اختيارية): هدف WidgetKit + مجموعة تطبيق، موقّعة توقيعًا محليًا (ad-hoc) لتحمل الصلاحيات — AltStore يعيد توقيعها
+  ios_widget:
+    needs: test
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with: { flutter-version: '${{ env.FLUTTER_VERSION }}', channel: stable, cache: true }
+      - name: Add widget target
+        run: |
+          gem list -i xcodeproj >/dev/null || sudo gem install xcodeproj --no-document
+          flutter pub get
+          ruby ios/tool/add_widget_target.rb
+      - name: Build (no code signing)
+        run: flutter build ios --release --no-codesign --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+      - name: Ad-hoc sign with app-group entitlements and package
+        run: |
+          APP=build/ios/iphoneos/Runner.app
+          test -d "$APP/PlugIns/FavWidget.appex" || { echo "widget missing"; exit 1; }
+          for f in "$APP"/Frameworks/*; do codesign -f -s - "$f"; done
+          codesign -f -s - --entitlements ios/FavWidget/FavWidget.entitlements "$APP/PlugIns/FavWidget.appex"
+          codesign -f -s - --entitlements ios/Runner/RunnerWidget.entitlements "$APP"
+          codesign -d --entitlements :- "$APP" | grep -q application-groups
+          mkdir -p Payload dist && cp -R "$APP" Payload/ && zip -qry dist/Favorites2-widget.ipa Payload && ls -la dist
+      - uses: actions/upload-artifact@v4
+        with: { name: ipa-widget, path: dist/Favorites2-widget.ipa, if-no-files-found: error }
+
   release:
-    needs: [test, android, ios]
+    needs: [test, android, ios, ios_widget]
     permissions:
       contents: write
     if: ${{ !cancelled() && (needs.android.result == 'success' || needs.ios.result == 'success') }}
@@ -93,7 +120,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           ls -la dist
-          NOTES="Build $BUILD_NAME · commit ${GITHUB_SHA::7} · APK: ${{ needs.android.result }} · IPA: ${{ needs.ios.result }}"
+          NOTES="Build $BUILD_NAME · commit ${GITHUB_SHA::7} · APK: ${{ needs.android.result }} · IPA: ${{ needs.ios.result }} · IPA+widget: ${{ needs.ios_widget.result }}"
           gh release view latest >/dev/null 2>&1 || gh release create latest --target "$GITHUB_SHA" --title "Favorites 2" --notes "$NOTES"
           gh release upload latest dist/* --clobber
           gh release edit latest --title "Favorites 2 · $BUILD_NAME" --notes "$NOTES" --latest

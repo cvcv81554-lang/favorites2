@@ -13,6 +13,8 @@ import 'keys.dart';
 import 'platform/db_factory.dart';
 import 'sources.dart';
 import 'studio_repo.dart';
+import '../domain/age_gate.dart';
+import '../domain/taste.dart' show profileFromJson, featuresOf, similarity;
 import '../domain/works.dart' show sameWork;
 
 /// التحديث في الخلفية والإشعارات — يعمل والتطبيق مغلق:
@@ -28,11 +30,13 @@ const bgTaskId = 'com.favlib.favorites2.check';
 const _perRun = 15;   // دفعة صغيرة تكفي ضمن ~30 ثانية في iOS
 
 class BgSettings {
-  final bool on, works, photos, wifiOnly; final int hours;
-  const BgSettings({this.on = false, this.works = true, this.photos = true, this.wifiOnly = true, this.hours = 12});
-  Map<String, dynamic> toJson() => {'on': on, 'works': works, 'photos': photos, 'wifi': wifiOnly, 'h': hours};
-  factory BgSettings.fromJson(Map? j) => BgSettings(on: j?['on'] == true, works: j?['works'] != false, photos: j?['photos'] != false, wifiOnly: j?['wifi'] != false, hours: (j?['h'] as num?)?.toInt() ?? 12);
-  BgSettings copy({bool? on, bool? works, bool? photos, bool? wifiOnly, int? hours}) => BgSettings(on: on ?? this.on, works: works ?? this.works, photos: photos ?? this.photos, wifiOnly: wifiOnly ?? this.wifiOnly, hours: hours ?? this.hours);
+  /// [rem]: تذكير بإصدارات المفضلات (مجدول على الجهاز). [tasteNew]: ممثلة جديدة قريبة جدًا من ذوقك.
+  final bool on, works, photos, wifiOnly, rem, tasteNew; final int hours;
+  const BgSettings({this.on = false, this.works = true, this.photos = true, this.wifiOnly = true, this.hours = 12, this.rem = true, this.tasteNew = true});
+  Map<String, dynamic> toJson() => {'on': on, 'works': works, 'photos': photos, 'wifi': wifiOnly, 'h': hours, 'rem': rem, 'tn': tasteNew};
+  factory BgSettings.fromJson(Map? j) => BgSettings(on: j?['on'] == true, works: j?['works'] != false, photos: j?['photos'] != false, wifiOnly: j?['wifi'] != false, hours: (j?['h'] as num?)?.toInt() ?? 12,
+    rem: j?['rem'] != false, tasteNew: j?['tn'] != false);
+  BgSettings copy({bool? on, bool? works, bool? photos, bool? wifiOnly, int? hours, bool? rem, bool? tasteNew}) => BgSettings(on: on ?? this.on, works: works ?? this.works, photos: photos ?? this.photos, wifiOnly: wifiOnly ?? this.wifiOnly, hours: hours ?? this.hours, rem: rem ?? this.rem, tasteNew: tasteNew ?? this.tasteNew);
 }
 
 final _notif = FlutterLocalNotificationsPlugin();
@@ -52,21 +56,25 @@ Future<bool> requestNotifPermission() async {
 }
 
 /// مدخلات مهمة الخلفية (من التطبيق). البوابة: البالغات فقط.
-Map<String, dynamic> buildBgInput(BgSettings s, List<Performer> lib, Set<String> studioIds) => {
+Map<String, dynamic> buildBgInput(BgSettings s, List<Performer> lib, Set<String> studioIds, {Map<String, dynamic>? taste}) => {
+  'taste': ?taste,   // {prof, fb, hidden} لكشف «ممثلة جديدة قريبة من ذوقك»
+  'libS': [for (final p in lib) ...p.stashIds], 'libN': [for (final p in lib) norm(p.name)],
   'v': 1, 'settings': s.toJson(),
   'ids': [for (final p in lib) if (!p.isMinor && (p.stashId.isNotEmpty || p.pdbId.isNotEmpty)) {'id': p.id, 's': p.stashId, 't': p.pdbId, 'ss': p.stashIds, 'ts': p.pdbIds, 'k': [for (final w in p.works) wKeyOf(w)],
     'w': [for (final w in p.works) {for (final k in const ['t', 's', 'd', 'is', 'ip']) if ('${w[k] ?? ''}'.isNotEmpty) k: w[k]}]}],
   'img': studioIds.toList(),
 };
 
-Future<void> writeBgInput(BgSettings s, List<Performer> lib, Set<String> studioIds) async { if (!kIsWeb) await bgWrite('bg_input.json', jsonEncode(buildBgInput(s, lib, studioIds))); }
+Future<void> writeBgInput(BgSettings s, List<Performer> lib, Set<String> studioIds, {Map<String, dynamic>? taste}) async { if (!kIsWeb) await bgWrite('bg_input.json', jsonEncode(buildBgInput(s, lib, studioIds, taste: taste))); }
 
 /// نتيجة جلب: أعمال جديدة لكل ممثلة + صور جديدة (لم تُدمج بعد).
 class FetchResult {
   final Map<String, List<Map<String, dynamic>>> works; final List<StudioImg> images; final List<String> errors; final int nextCursor;
-  const FetchResult(this.works, this.images, this.errors, this.nextCursor);
+  /// مرشحات جديدة قريبة جدًا من ذوقك (بصيغة TasteRec JSON).
+  final List<Map<String, dynamic>> recs;
+  const FetchResult(this.works, this.images, this.errors, this.nextCursor, [this.recs = const []]);
   int get workCount => works.values.fold(0, (s, l) => s + l.length);
-  Map<String, dynamic> toJson() => {'works': works, 'images': [for (final x in images) x.toJson()], 'err': errors, 'at': DateTime.now().millisecondsSinceEpoch};
+  Map<String, dynamic> toJson() => {'works': works, 'images': [for (final x in images) x.toJson()], 'err': errors, 'recs': recs, 'at': DateTime.now().millisecondsSinceEpoch};
 }
 
 /// الجلب فقط (بلا أي كتابة على القاعدة) — من مدخلات bg_input. [limit]: دفعة دوّارة.
@@ -165,11 +173,17 @@ void callbackDispatcher() {
       final inp = jsonDecode(raw) as Map<String, dynamic>;
       if (!BgSettings.fromJson(inp['settings'] as Map?).on) return true;
       final st = jsonDecode(await bgRead('bg_state.json') ?? '{}') as Map;
-      final r = await fetchUpdates(inp, cursor: (st['cursor'] as num?)?.toInt() ?? 0, limit: _perRun);
-      await bgWrite('bg_state.json', jsonEncode({'cursor': r.nextCursor, 'at': DateTime.now().millisecondsSinceEpoch, 'works': r.workCount, 'photos': r.images.length, 'err': r.errors.join(' · ')}));
-      if (r.workCount > 0 || r.images.isNotEmpty) {
+      final r0 = await fetchUpdates(inp, cursor: (st['cursor'] as num?)?.toInt() ?? 0, limit: _perRun);
+      final told = {...((st['told'] as List?) ?? const []).cast<String>()};
+      final fresh = await findTasteNew(inp, told);
+      final r = FetchResult(r0.works, r0.images, r0.errors, r0.nextCursor, fresh);
+      told.addAll(fresh.map((x) => '${x['id']}'));
+      await bgWrite('bg_state.json', jsonEncode({'cursor': r.nextCursor, 'at': DateTime.now().millisecondsSinceEpoch, 'works': r.workCount, 'photos': r.images.length, 'err': r.errors.join(' · '),
+        'told': told.toList().reversed.take(400).toList()}));
+      if (r.workCount > 0 || r.images.isNotEmpty || fresh.isNotEmpty) {
         await bgWrite('bg_out_${DateTime.now().millisecondsSinceEpoch}.json', jsonEncode(r.toJson()));
-        await _notify(r.workCount, r.images.length);
+        if (r.workCount > 0 || r.images.isNotEmpty) await _notify(r.workCount, r.images.length);
+        if (fresh.isNotEmpty) await _notifyTaste(fresh.length, ((fresh.first['score'] as num) * 58 + 40).round().clamp(40, 98));
       }
       return true;
     } catch (_) { return false; }   // يعيد النظام المحاولة لاحقًا
@@ -195,7 +209,8 @@ Future<List<FetchResult>> takePendingResults() async {
       final j = jsonDecode(await bgRead(name) ?? '{}') as Map;
       out.add(FetchResult(
         {for (final e in ((j['works'] as Map?) ?? const {}).entries) '${e.key}': [for (final w in e.value as List) Map<String, dynamic>.from(w as Map)]},
-        [for (final x in (j['images'] as List? ?? const [])) StudioImg.fromJson(Map<String, dynamic>.from(x as Map))], const [], 0));
+        [for (final x in (j['images'] as List? ?? const [])) StudioImg.fromJson(Map<String, dynamic>.from(x as Map))], const [], 0,
+        [for (final x in (j['recs'] as List? ?? const [])) Map<String, dynamic>.from(x as Map)]));
     } catch (_) {}
     await bgRemove(name);
   }
@@ -205,3 +220,93 @@ Future<List<FetchResult>> takePendingResults() async {
 Future<Map<String, dynamic>?> lastBgState() async { final r = await bgRead('bg_state.json'); return r == null ? null : Map<String, dynamic>.from(jsonDecode(r) as Map); }
 
 extension _E on String { String ifEmpty(String o) => isEmpty ? o : this; }
+
+
+// ===================== تنبيهات أذكى =====================
+
+/// تذكير بإصدار: (المعرّف، الوقت المحلي، العنوان، النص) — نص عام بلا أسماء (يظهر على شاشة القفل).
+typedef Reminder = (int, DateTime, String, String);
+
+/// إصدارات مفضلاتك القادمة (★ أو تقييم 4+، بتاريخ يوم كامل خلال 60 يومًا) ⇒ تذكير مساء اليوم السابق (8م) وصباح يوم الإصدار (9ص).
+/// حد أقصى 40 تذكيرًا (iOS يقبل 64 مجدولًا).
+List<Reminder> computeReminders(List<Performer> lib, DateTime now) {
+  final byDay = <String, Set<String>>{};   // اليوم ⇒ مفاتيح الأعمال
+  final today = DateTime(now.year, now.month, now.day);
+  for (final p in lib) {
+    if (p.isMinor || !(p.fav || p.rating >= 4)) continue;
+    for (final w in p.works) {
+      final d = '${w['d'] ?? ''}';
+      if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(d) || w['w'] == 1 || w['w'] == true) continue;
+      final day = DateTime.tryParse(d); if (day == null) continue;
+      final diff = day.difference(today).inDays;
+      if (diff < 0 || diff > 60) continue;
+      (byDay[d] ??= {}).add(wKeyOf(w));
+    }
+  }
+  final out = <Reminder>[]; var id = 5000;
+  for (final d in (byDay.keys.toList()..sort())) {
+    final day = DateTime.parse(d), n = byDay[d]!.length;
+    final eve = DateTime(day.year, day.month, day.day - 1, 20), morn = DateTime(day.year, day.month, day.day, 9);
+    if (eve.isAfter(now)) out.add((id++, eve, 'المفضلة · غدًا', n == 1 ? 'يصدر غدًا عمل جديد لمفضلة لديك' : 'يصدر غدًا $n أعمال جديدة لمفضلاتك'));
+    if (morn.isAfter(now)) out.add((id++, morn, 'المفضلة · صدر اليوم', n == 1 ? 'صدر اليوم عمل جديد لمفضلة لديك' : 'صدرت اليوم $n أعمال جديدة لمفضلاتك'));
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+const _remDetails = NotificationDetails(
+  android: AndroidNotificationDetails('releases', 'إصدارات المفضلات', channelDescription: 'تذكير بإصدارات مفضلاتك القادمة (بلا أسماء)', importance: Importance.defaultImportance, visibility: NotificationVisibility.private),
+  iOS: DarwinNotificationDetails());
+
+/// يعيد جدولة تذكيرات الإصدارات (يلغي القديمة أولًا). بلا إنترنت — مجدولة على الجهاز.
+Future<int> scheduleReleaseReminders(List<Performer> lib, BgSettings s) async {
+  if (kIsWeb) return 0;
+  await _initNotif();
+  for (var i = 5000; i < 5045; i++) { await _notif.cancel(id: i); }
+  if (!s.on || !s.rem) return 0;
+  final rs = computeReminders(lib, DateTime.now());
+  tzdata.initializeTimeZones();
+  for (final r in rs) {
+    await _notif.zonedSchedule(id: r.$1, title: r.$3, body: r.$4, scheduledDate: tz.TZDateTime.from(r.$2.toUtc(), tz.UTC), notificationDetails: _remDetails, androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle);
+  }
+  return rs.length;
+}
+
+/// «ممثلة جديدة قريبة من ذوقك»: أحدث الوجوه في StashDB (ترتيب الظهور) ⇒ بوابة +18 ⇒ تشابه مع ملف ذوقك المحفوظ ≥ 82٪ ⇒ اقتراح.
+/// لا يُعاد التنبيه لنفس الممثلة، ولا لمن في مكتبتك أو أخفيتها.
+Future<List<Map<String, dynamic>>> findTasteNew(Map<String, dynamic> input, Set<String> told) async {
+  final s = BgSettings.fromJson(input['settings'] as Map?);
+  final t = input['taste'] as Map?;
+  final prof = profileFromJson(t?['prof']);
+  if (!s.tasteNew || prof == null || !prof.sufficient || !await ApiKeys.has(ApiKeys.stash)) return const [];
+  final fb = {for (final e in ((t?['fb'] as Map?) ?? const {}).entries) '${e.key}': (e.value as num).toDouble()};
+  final skip = {...told, ...((input['libS'] as List?) ?? const []).cast<String>(), ...((t?['hidden'] as List?) ?? const []).cast<String>()};
+  final names = {...((input['libN'] as List?) ?? const []).cast<String>()};
+  final out = <Map<String, dynamic>>[];
+  try {
+    final d = await StashDB.q('query{queryPerformers(input:{gender:FEMALE,sort:DEBUT,direction:DESC,per_page:40}){performers{id name aliases gender birth_date country ethnicity hair_color eye_color height cup_size band_size waist_size hip_size breast_type career_start_year career_end_year tattoos{location} piercings{location} images{url width height}}}}');
+    for (final x in ((d['queryPerformers'] as Map?)?['performers'] as List? ?? const [])) {
+      if (x is! Map) continue;
+      final m = Map<String, dynamic>.from(x); final id = '${m['id']}';
+      if (skip.contains(id) || names.contains(norm(m['name']))) continue;
+      if (m['gender'] != null && m['gender'] != 'FEMALE') continue;
+      if (!adultOk({'birth': m['birth_date']})) continue;                         // بوابة +18 قبل أي صورة
+      final ft = featuresOf(m); final sim = similarity(prof, ft, fb: fb);
+      if (sim.score < .82 || sim.why.isEmpty) continue;
+      final imgs = stashImages(m);
+      out.add({'id': id, 'name': '${m['name']}', 'birth': '${m['birth_date'] ?? ''}', 'country': '${m['country'] ?? ''}', 'image': imgs.isEmpty ? '' : imgs.first,
+        'score': sim.score, 'why': ['ظهرت حديثًا في المجال', ...sim.why.take(3)], 'diff': sim.diff.take(2).toList(), 'f': ft, 'tags': ['new', 'debut']});
+    }
+  } catch (_) {}
+  out.sort((a, b) => (b['score'] as num).compareTo(a['score'] as num));
+  return out.take(5).toList();
+}
+
+Future<void> _notifyTaste(int n, int pct) async {
+  if (kIsWeb) return;
+  await _initNotif();
+  await _notif.show(id: 4202, title: 'المفضلة · اكتشف', body: n == 1 ? 'ممثلة جديدة قريبة جدًا من ذوقك ($pct٪) — افتح «اكتشف»' : '$n ممثلات جديدات قريبات من ذوقك — افتح «اكتشف»',
+    notificationDetails: const NotificationDetails(
+      android: AndroidNotificationDetails('taste', 'اقتراحات حسب ذوقك', channelDescription: 'ممثلة جديدة قريبة من ذوقك (بلا أسماء)', importance: Importance.defaultImportance, visibility: NotificationVisibility.private),
+      iOS: DarwinNotificationDetails()));
+}

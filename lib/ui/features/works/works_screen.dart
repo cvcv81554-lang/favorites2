@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../domain/performer.dart';
 import '../../../domain/sanitize.dart';
+import '../../../domain/work_taste.dart';
 import '../../../domain/works.dart';
 import '../../core/posters.dart';
 import '../../core/state.dart';
@@ -15,10 +16,15 @@ import '../tools/tools_screen.dart' show askName;
 
 final worksProvider = Provider<List<WorkGroup>>((ref) => groupWorks(ref.watch(libraryProvider).value ?? const []));
 
-enum WTab { recent, watch, upcoming, seen, top, diary, performers, studios }
+/// ذوقك في الأعمال + الاقتراحات (محلي، يُعاد حسابه عند تغيّر المكتبة فقط).
+final workTasteProvider = Provider<WorkTaste>((ref) => buildWorkTaste(ref.watch(worksProvider)));
+final workPicksProvider = Provider<List<WorkPick>>((ref) => recommendWorks(ref.watch(worksProvider), ref.watch(workTasteProvider)));
+
+enum WTab { recent, watch, upcoming, seen, top, diary, performers, studios, forYou }
 
 /// كل تبويب: اسمه، أيقونته، وسطر يشرحه.
 const workTabs = <WTab, (String, IconData, String)>{
+  WTab.forYou: ('لك', Icons.auto_awesome_rounded, 'أعمال لم تشاهدها، مرتبة حسب ذوقك في الأعمال (تقييماتك ومشاهداتك)'),
   WTab.recent: ('الأحدث', Icons.new_releases_rounded, 'أعمال صدرت، الأحدث أولًا'),
   WTab.watch: ('للمشاهدة', Icons.bookmark_rounded, 'ما حفظته لتشاهده لاحقًا · اضغط 🔖 على أي عمل'),
   WTab.upcoming: ('القادمة', Icons.event_rounded, 'إصدارات لم تصدر بعد، مع العدّ التنازلي'),
@@ -44,6 +50,13 @@ class _WN extends Notifier<_WState> {
     return _WState(wt != null && wt >= 0 && wt < WTab.values.length ? WTab.values[wt] : WTab.recent, '', '', true, WSort.date, '', wp);
   } void set(_WState s) => state = s; }
 final _wProvider = NotifierProvider<_WN, _WState>(_WN.new);
+
+/// فتح قسم الأعمال على أعمال استوديو معيّن.
+void showStudioWorks(BuildContext context, WidgetRef ref, String studio) {
+  final st = ref.read(_wProvider);
+  ref.read(_wProvider.notifier).set(st.copy(tab: WTab.recent, studio: studio, pid: '', q: '', wl: ''));
+  context.go('/works');
+}
 
 /// فتح قسم الأعمال على أعمال ممثلة معينة (من صفحتها أو من أي مكان).
 void showPerformerWorks(BuildContext context, WidgetRef ref, String pid) {
@@ -93,10 +106,13 @@ class WorksScreen extends ConsumerWidget {
     final seen = all.where((g) => g.seen).length;
     final watchN = all.where((g) => g.q && !g.seen).length, upN = all.where((g) => g.isUpcoming).length;
     final counts = {WTab.recent: all.where((g) => !g.isUpcoming && g.date.isNotEmpty && g.date.compareTo(t0) <= 0).length, WTab.watch: watchN, WTab.upcoming: upN, WTab.seen: seen,
-      WTab.top: all.where((g) => g.r >= 4).length, WTab.diary: all.where((g) => g.seen && g.wd.isNotEmpty).length};
+      WTab.top: all.where((g) => g.r >= 4).length, WTab.diary: all.where((g) => g.seen && g.wd.isNotEmpty).length, WTab.forYou: ref.watch(workPicksProvider).length};
     // «شاهد التالي»: أقدم ما حُفظ للمشاهدة (أو الأحدث صدورًا ولم يُشاهد)، بصورة
+    final picks = ref.watch(workPicksProvider);
     final nextUp = (all.where((g) => g.q && !g.seen).toList()..sort((a, b) => a.a.compareTo(b.a))).firstOrNull
+      ?? picks.where((x) => x.g.p.isNotEmpty).firstOrNull?.g   // مقترح حسب ذوقك
       ?? (all.where((g) => !g.seen && !g.isUpcoming && g.p.isNotEmpty && g.date.isNotEmpty).toList()..sort((a, b) => b.date.compareTo(a.date))).firstOrNull;
+    final nextWhy = nextUp == null || nextUp.q ? null : picks.where((x) => x.g.key == nextUp.key).firstOrNull?.why.first;
     final sel = ref.watch(_selProvider);
     final w = MediaQuery.sizeOf(context).width;
 
@@ -134,7 +150,9 @@ class WorksScreen extends ConsumerWidget {
     ])));
 
     final Widget body;
-    if (focus == null && st.tab == WTab.performers) {
+    if (focus == null && st.tab == WTab.forYou) {
+      body = _forYou(context, ref.watch(workTasteProvider), picks, w);
+    } else if (focus == null && st.tab == WTab.performers) {
       body = _performers(context, l.toList(), (pid) => n.set(st.copy(pid: pid)));
     } else if (focus == null && st.tab == WTab.studios) {
       body = _studios(l.toList(), (s) => n.set(st.copy(tab: WTab.recent, studio: s)));
@@ -181,7 +199,7 @@ class WorksScreen extends ConsumerWidget {
             stat('$watchN', 'للمشاهدة', C.gold), const SizedBox(width: 8),
             stat('$upN', 'قادم', C.rose),
           ]),
-          if (nextUp != null && q.isEmpty && sel.isEmpty) ...[const SizedBox(height: S.s4), _NextUp(g: nextUp)],
+          if (nextUp != null && q.isEmpty && sel.isEmpty) ...[const SizedBox(height: S.s4), _NextUp(g: nextUp, why: nextWhy)],
           const SizedBox(height: S.s3),
           SearchBar(
             hintText: 'ابحث بالعنوان أو الاستوديو أو الممثلة…', leading: const Icon(Icons.search_rounded), onChanged: (v) => n.set(st.copy(q: v)),
@@ -196,6 +214,31 @@ class WorksScreen extends ConsumerWidget {
   }
 
   /// تقدّم كل ممثلة: شاهدت كم من أعمالها.
+  /// «لك»: ملخص ذوقك في الأعمال ثم اقتراحات بأسبابها.
+  static Widget _forYou(BuildContext context, WorkTaste t, List<WorkPick> picks, double w) {
+    if (!t.sufficient) {
+      return const SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'أحتاج بيانات أكثر',
+        body: 'قيّم أو علّم «شاهدته» على 5 أعمال على الأقل، وسأرتب لك الأعمال التي لم تشاهدها حسب ذوقك (الاستوديوهات والوسوم والممثلات).'));
+    }
+    Widget chips(String title, List<KeyStat> l) => l.isEmpty ? const SizedBox.shrink() : Padding(padding: const EdgeInsets.only(top: 6), child: Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      Text(title, style: const TextStyle(color: C.muted, fontSize: 12)),
+      for (final k in l) Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: C.surface2, borderRadius: BorderRadius.circular(99)),
+        child: Text(k.avgR > 0 ? '${k.label} · ★${k.avgR.toStringAsFixed(1)}' : '${k.label} · ${k.n}', style: const TextStyle(fontSize: 12))),
+    ]));
+    return SliverMainAxisGroup(slivers: [
+      SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s3), child: Container(padding: const EdgeInsets.all(S.s3),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: C.gold.withValues(alpha: .35)), color: C.surface),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('ذوقك في الأعمال (من ${t.signals} عملًا قيّمته أو شاهدته)', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700)),
+          chips('استوديوهات:', t.top('st:')), chips('وسوم:', t.top('tg:', k: 6)), chips('ممثلات:', t.top('pf:', k: 4)),
+        ])))),
+      if (picks.isEmpty) const SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'لا اقتراحات الآن', body: 'شاهدت كل ما يطابق ذوقك من أعمال مكتبتك! حدّث أعمال ممثلاتك لتظهر أعمال جديدة.'))
+      else SliverPadding(padding: const EdgeInsets.symmetric(horizontal: S.s4), sliver: SliverGrid.builder(
+        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: w < 600 ? 200 : 260, mainAxisSpacing: S.s3, crossAxisSpacing: S.s3, childAspectRatio: .78),
+        itemCount: picks.length, itemBuilder: (c, i) => WorkPoster(g: picks[i].g, why: picks[i].why.first))),
+    ]);
+  }
+
   static Widget _performers(BuildContext context, List<WorkGroup> l, void Function(String) open) {
     final by = <String, (Performer, int, int)>{};
     for (final g in l) { for (final p in g.who) { final e = by[p.id]; by[p.id] = (p, (e?.$2 ?? 0) + 1, (e?.$3 ?? 0) + (g.seen ? 1 : 0)); } }
@@ -243,14 +286,14 @@ class _Bar extends SliverPersistentHeaderDelegate {
 
 /// بطاقة «شاهد التالي» الكبيرة.
 class _NextUp extends ConsumerWidget {
-  const _NextUp({required this.g});
-  final WorkGroup g;
+  const _NextUp({required this.g, this.why});
+  final WorkGroup g; final String? why;
   @override
   Widget build(BuildContext context, WidgetRef ref) => GestureDetector(onTap: () => showWorkSheet(context, ref, g.key), child: AspectRatio(aspectRatio: 16 / 8, child: ClipRRect(borderRadius: BorderRadius.circular(S.rXl), child: Stack(fit: StackFit.expand, children: [
     WorkImage(g.p, name: g.s.isNotEmpty ? g.s : g.t),
     const DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x00000000), Color(0xE60A0810)], stops: [.35, 1]))),
     Positioned(left: S.s3, right: S.s3, bottom: S.s3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(g.q ? '🔖 شاهد التالي' : '▶ جديد لم تشاهده', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 12.5)),
+      Text(g.q ? '🔖 شاهد التالي' : why != null ? '✨ مقترح لك · $why' : '▶ جديد لم تشاهده', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 12.5)),
       Text(g.t, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
       Text([g.who.map((p) => p.name).take(2).join('، '), if (g.s.isNotEmpty) g.s].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
     ])),
@@ -259,8 +302,8 @@ class _NextUp extends ConsumerWidget {
 
 /// بطاقة عمل للشبكة: صورة عريضة + حالة واضحة (شوهد/للمشاهدة/قادم/تقييم) + العنوان والممثلات.
 class WorkPoster extends ConsumerWidget {
-  const WorkPoster({super.key, required this.g});
-  final WorkGroup g;
+  const WorkPoster({super.key, required this.g, this.why});
+  final WorkGroup g; final String? why;   // why: سبب الاقتراح (تبويب «لك»)
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final du = g.daysUntil;
@@ -282,6 +325,7 @@ class WorkPoster extends ConsumerWidget {
           ])),
           Expanded(child: Padding(padding: const EdgeInsets.fromLTRB(8, 6, 8, 6), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(g.t, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, height: 1.25)),
+            if (why != null) Text(why!, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold2, fontSize: 11, height: 1.3)),
             const Spacer(),
             Text(g.who.map((p) => p.name).take(2).join('، ') + (g.who.length > 2 ? ' +${g.who.length - 2}' : ''), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.gold, fontSize: 11.5)),
             Text([if (g.s.isNotEmpty) g.s, if (g.date.isNotEmpty) g.date.substring(0, g.d.isNotEmpty ? 10 : 4)].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted, fontSize: 11)),

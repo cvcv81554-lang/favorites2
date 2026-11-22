@@ -17,6 +17,19 @@
 	<array>
 		<string>com.favlib.favorites2.check</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.favlib.favorites2</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>favorites2</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

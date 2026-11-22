@@ -85,6 +85,7 @@ class DiscoverScreen extends ConsumerWidget {
     final topCountry = t.bars.where((b) => b.field == 'country' && b.strong).firstOrNull?.items.first.$1;
     final lanes = <(String, String, List<TasteRec>, bool)>[];
     if (ready) {
+      lanes.add(('🆕 جديد قريب من ذوقك', 'وجدها التحديث في الخلفية — ظهرت حديثًا وتشبه مفضلاتك', take(t.recs.where((r) => r.tags.contains('new')), 12), false));
       lanes.add(('☀️ اختيار اليوم', 'يتجدد كل يوم · متنوّع البلدان', take(daily, 12), false));
       for (final w in t.withNames) { lanes.add(('👯 لأنك تحب ${w.$2}', 'عملن معها، ويشبهن ذوقك', take(t.recs.where((r) => r.tags.contains('with:${w.$1}')), 12), false)); }
       lanes.add(('✨ وجوه جديدة تناسبك', 'بدأن خلال آخر 3 سنوات', take(t.recs.where((r) => r.tags.contains('debut')), 12), false));

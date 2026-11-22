@@ -23,6 +23,7 @@ import '../privacy/lock_gate.dart';
 import '../tools/lists_state.dart';
 import '../studio/studio_screen.dart';
 import '../../core/bg_coordinator.dart';
+import '../../../data/privacy.dart';
 
 class MoreScreen extends ConsumerStatefulWidget {
   const MoreScreen({super.key});
@@ -124,6 +125,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         const _DualTools(),
       ]),
       _group('الخط', [const _FontSection()]),
+      _group('الويدجت', [const _WidgetSection()]),
       _group('الخصوصية', [
         const PrivacySection(),
         _tile(Icons.verified_user_rounded, 'بوابة +18', 'أي سجل عمره أقل من 18، أو تاريخه غير صالح، يُرفض في الحفظ والاستيراد والعرض.', null),
@@ -197,7 +199,7 @@ class _BgSectionState extends ConsumerState<_BgSection> {
   Future<void> _set(BgSettings s) async {
     if (s.on && !_s.on) { final ok = await requestNotifPermission(); if (!ok && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الإشعارات غير مسموحة — سيعمل التحديث بلا تنبيه'))); }
     final repo = await ref.read(repoProvider.future); await repo.kvSet('bg', s.toJson());
-    try { await writeInput(ref, lib: ref.read(libraryProvider.notifier).items); await applyBackground(s); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّرت الجدولة: $e'))); }
+    try { await writeInput(ref, lib: ref.read(libraryProvider.notifier).items); await applyBackground(s); final n = await rescheduleReminders(ref); if (mounted && s.on && s.rem && n > 0 && !_s.rem) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('جُدول $n تذكيرًا لإصدارات مفضلاتك'))); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّرت الجدولة: $e'))); }
     setState(() => _s = s);
   }
   Future<void> _now() async {
@@ -205,9 +207,12 @@ class _BgSectionState extends ConsumerState<_BgSection> {
     try {
       final lib = ref.read(libraryProvider.notifier).items;
       final ids = {for (final x in await (await ref.read(studioRepoProvider.future)).all()) x.id};
-      final f = await fetchUpdates(buildBgInput(_s.copy(works: true, photos: true), lib, ids), limit: 40);
+      final inp = buildBgInput(_s.copy(works: true, photos: true), lib, ids, taste: await tasteInput(ref));
+      final f0 = await fetchUpdates(inp, limit: 40);
+      final fresh = await findTasteNew(inp, const {});
+      final f = FetchResult(f0.works, f0.images, f0.errors, f0.nextCursor, fresh);
       final r = await applyFetch(ref, [f]);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.works > 0 || r.photos > 0 ? 'وُجد ${r.works} عمل و${r.photos} صورة جديدة' : (f.errors.isEmpty ? 'لا جديد الآن' : f.errors.join(' · ')))));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r.works > 0 || r.photos > 0 || fresh.isNotEmpty ? 'وُجد ${r.works} عمل و${r.photos} صورة جديدة${fresh.isNotEmpty ? ' و${fresh.length} ممثلة جديدة قريبة من ذوقك' : ''}' : (f.errors.isEmpty ? 'لا جديد الآن' : f.errors.join(' · ')))));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'))); }
     finally { if (mounted) setState(() => _busy = false); _load(); }
   }
@@ -238,6 +243,8 @@ class _BgSectionState extends ConsumerState<_BgSection> {
         CheckboxListTile(value: _s.works, onChanged: (v) => _set(_s.copy(works: v)), title: const Text('أعمال جديدة (StashDB)'), dense: true),
         CheckboxListTile(value: _s.photos, onChanged: (v) => _set(_s.copy(photos: v)), title: const Text('صور جديدة للاستديو'), dense: true),
         CheckboxListTile(value: _s.wifiOnly, onChanged: (v) => _set(_s.copy(wifiOnly: v)), title: const Text('على Wi-Fi فقط'), dense: true),
+        CheckboxListTile(value: _s.rem, onChanged: (v) => _set(_s.copy(rem: v)), title: const Text('تذكير بإصدارات مفضلاتك'), subtitle: const Text('مساء اليوم السابق وصباح يوم الإصدار — يعمل بلا إنترنت', style: TextStyle(color: C.muted, fontSize: 12)), dense: true),
+        CheckboxListTile(value: _s.tasteNew, onChanged: (v) => _set(_s.copy(tasteNew: v)), title: const Text('ممثلة جديدة قريبة من ذوقك'), subtitle: const Text('حين تظهر في StashDB ممثلة جديدة تشبه مفضلاتك (82٪ فأكثر) — يحتاج «تحليل ذوقي» مرة', style: TextStyle(color: C.muted, fontSize: 12)), dense: true),
       ],
       ListTile(leading: _busy ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync_rounded, color: C.gold), title: const Text('افحص الآن'),
         subtitle: Text(last == null ? 'لم يُفحص بعد' : 'آخر فحص: ${DateTime.fromMillisecondsSinceEpoch(last.toInt()).toString().substring(0, 16)} · ${_last?['works'] ?? 0} عمل · ${_last?['photos'] ?? 0} صورة', style: const TextStyle(color: C.muted)),
@@ -369,4 +376,28 @@ class _ReachState extends State<_Reach> {
           for (final x in _r!) Padding(padding: const EdgeInsets.only(top: 4), child: Text('${x.$1}: ${x.$2 ? 'يعمل ✓' : 'لا يعمل ✕ — ${x.$3}'}', style: TextStyle(color: x.$2 ? C.ok : C.gold, height: 1.4))),
         ]),
     onTap: _busy ? null : _check);
+}
+
+/// ويدجت الشاشة الرئيسية: الوضع الخاص + طريقة الإضافة.
+class _WidgetSection extends ConsumerStatefulWidget {
+  const _WidgetSection();
+  @override ConsumerState<_WidgetSection> createState() => _WidgetSectionState();
+}
+class _WidgetSectionState extends ConsumerState<_WidgetSection> {
+  bool _priv = false, _pin = false;
+  @override void initState() { super.initState(); _load(); }
+  Future<void> _load() async {
+    final repo = await ref.read(repoProvider.future);
+    final p = (await repo.kvGet('widget_private')) == true, pin = await Privacy.hasPin();
+    if (mounted) setState(() { _priv = p; _pin = pin; });
+  }
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    SwitchListTile(value: _priv || _pin, onChanged: _pin ? null : (v) async { await (await ref.read(repoProvider.future)).kvSet('widget_private', v); setState(() => _priv = v); await refreshHomeWidget(ref); },
+      secondary: const Icon(Icons.visibility_off_rounded, color: C.gold), title: const Text('ويدجت خاص (بلا صورة ولا اسم)'),
+      subtitle: Text(_pin ? 'مفعّل تلقائيًا لأن قفل التطبيق مفعّل' : 'يعرض الأعداد ومواعيد الإصدارات فقط — الشاشة الرئيسية يراها الجميع', style: const TextStyle(color: C.muted))),
+    ListTile(leading: const Icon(Icons.widgets_rounded, color: C.gold), title: const Text('إضافة الويدجت'),
+      subtitle: const Text('يحتاج نسخة Favorites2-widget.ipa. ثم: اضغط مطولًا على الشاشة الرئيسية ← تعديل ← إضافة أداة ← المفضلة (صغير أو متوسط).', style: TextStyle(color: C.muted)),
+      onTap: () => refreshHomeWidget(ref)),
+  ]);
 }

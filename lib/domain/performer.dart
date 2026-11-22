@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'age_gate.dart';
 import 'sanitize.dart';
 
@@ -64,3 +65,19 @@ class Performer {
   /// الحقول المحلية للجهاز (لا تُزامن ولا تُستبدل من مصدر آخر).
   static const deviceLocal = {'views', 'lastView', 'nph'};
 }
+
+/// «نجمة اليوم»: نفس الاختيار في الرئيسية والويدجت — من المفضلات (وإلا الكل)، ومن لها صور كاملة أولًا، ثابتة طوال اليوم.
+Performer? pickSpotlight(List<Performer> all, DateTime day) {
+  final adults = all.where((p) => !p.isMinor).toList();
+  if (adults.isEmpty) return null;
+  final favs = adults.where((p) => p.fav).toList();
+  final base = favs.isNotEmpty ? favs : adults;
+  var pool = base.where((p) => p.photos.isNotEmpty).toList();
+  if (pool.isEmpty) pool = base.where((p) => p.cover.isNotEmpty).toList();
+  if (pool.isEmpty) return adults.first;
+  final seed = day.year * 1000 + day.month * 40 + day.day;
+  return pool[_SeededPick(seed).next(pool.length)];
+}
+
+/// نفس تسلسل Random(seed).nextInt في Dart (للتوافق مع الاختيار السابق في الرئيسية).
+class _SeededPick { _SeededPick(this.seed); final int seed; int next(int n) => math.Random(seed).nextInt(n); }
