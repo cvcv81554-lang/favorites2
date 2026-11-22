@@ -105,8 +105,8 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
 
 String hostOf(String url) => Uri.tryParse(url)?.host.toLowerCase() ?? '';
 
-/// حالة خادم محفوظة: {ok: يعمل؟، t: وقت الفحص، why: السبب}. المحجوب يُعاد فحصه بعد 3 أيام، والعامل بعد 14 يومًا.
-bool hostStale(Map? h, int now) => h == null || now - ((h['t'] as num?) ?? 0) > (h['ok'] == true ? 14 : 3) * 86400000;
+/// حالة خادم محفوظة: {ok: يعمل؟، dl: يحتاج تنزيلًا، t: وقت الفحص، why: السبب}. المحجوب يُعاد فحصه بعد 6 ساعات، والعامل بعد 14 يومًا.
+bool hostStale(Map? h, int now) => h == null || now - ((h['t'] as num?) ?? 0) > (h['ok'] == true ? 14 * 86400000 : 6 * 3600000);
 /// يُعرض المقطع إن كان خادمه يعمل أو لم يُفحص بعد (يُفحص عند التشغيل).
 bool hostUsable(Map<String, dynamic> hosts, String url) => (hosts[hostOf(url)] as Map?)?['ok'] != false;
 /// خطأ تشغيل يعني حجب الشبكة (لا خطأ في المقطع نفسه).

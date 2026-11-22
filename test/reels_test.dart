@@ -72,8 +72,8 @@ void main() {
     final f = rankReels(groups, t, const ReelSignals({}, {}), playable: (u) => hostUsable(hosts, u));
     expect(f, isEmpty);                                                   // كل المقاطع على خادم محجوب
     expect(rankReels(groups, t, const ReelSignals({}, {}), playable: (u) => hostUsable({}, u)), isNotEmpty);   // غير مفحوص ⇒ يُجرَّب
-    expect(hostStale({'ok': false, 't': now - 2 * 86400000}, now), isFalse);
-    expect(hostStale({'ok': false, 't': now - 4 * 86400000}, now), isTrue);
+    expect(hostStale({'ok': false, 't': now - 2 * 3600000}, now), isFalse);
+    expect(hostStale({'ok': false, 't': now - 7 * 3600000}, now), isTrue);
     expect(hostStale({'ok': true, 't': now - 10 * 86400000}, now), isFalse);
     expect(hostStale(null, now), isTrue);
     expect(hostOf('https://CDN.Test/a.mp4'), 'cdn.test');

@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../data/keys.dart';
+import '../../../data/platform/clip_cache.dart';
 import '../../../data/privacy.dart' show blurPhotos;
 import '../../../data/sources.dart';
 import '../../../domain/performer.dart';
@@ -47,6 +48,7 @@ Future<String> fetchTrailers(WidgetRef ref, {bool favsOnly = true, void Function
     changed.add(cur.copyWith({'works': merged}));
   }
   if (changed.isNotEmpty) await lib.upsertMany(changed);
+  await (await ref.read(repoProvider.future)).kvSet('reels_fetched_at', DateTime.now().millisecondsSinceEpoch);
   return withTr == 0 ? 'لم تُعثر على إعلانات رسمية لأعمال ${favsOnly ? 'مفضلاتك' : 'مكتبتك'} في ThePornDB.' : 'جاهز: $withTr مقطعًا';
 }
 
@@ -93,6 +95,32 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     }
     if (!mounted) return;
     setState(() { _preparing = false; _msg = ''; _build(); });
+    _prefetch(0); _prefetch(1);
+    _autoUpdate();
+  }
+
+  /// تحديث تلقائي: إن مضى 3 أيام على آخر جلب ⇒ جلب الإعلانات الجديدة بهدوء في الخلفية.
+  Future<void> _autoUpdate() async {
+    final repo = await ref.read(repoProvider.future);
+    final last = (await repo.kvGet('reels_fetched_at') as num?)?.toInt() ?? 0;
+    if (_busy || DateTime.now().millisecondsSinceEpoch - last < 3 * 86400000 || !await ApiKeys.has(ApiKeys.tpdb)) return;
+    final before = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length;
+    if (mounted) setState(() => _msg = 'تحديث المقاطع في الخلفية…');
+    final m = await fetchTrailers(ref, favsOnly: _favsOnly);
+    final added = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length - before;
+    if (!mounted) return;
+    setState(() => _msg = added > 0 ? 'وصل $added مقطعًا جديدًا — اضغط ↻ لعرضها' : m.startsWith('جاهز') ? '' : m);
+  }
+
+  /// خادم يحتاج تنزيلًا (المشغّل لا يصله مباشرة) ⇒ يُتذكر، ويُنزَّل التالي منه مسبقًا.
+  Future<void> _markDl(String url) async {
+    final h = hostOf(url); if (h.isEmpty || (_hosts[h] as Map?)?['dl'] == true) return;
+    _hosts[h] = {...?(_hosts[h] as Map?), 'ok': true, 'dl': true, 't': DateTime.now().millisecondsSinceEpoch};
+    await (await ref.read(repoProvider.future)).kvSet('reel_hosts', _hosts);
+  }
+  void _prefetch(int i) {
+    final f = _feed; if (f == null || i >= f.length) return;
+    if ((_hosts[hostOf(f[i].url)] as Map?)?['dl'] == true) unawaited(downloadClip(f[i].url));
   }
 
   Future<void> _markBlocked(String url, String why) async {
@@ -164,11 +192,12 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       if (!sigReady || (_preparing && feed.isEmpty)) Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const CircularProgressIndicator(), const SizedBox(height: S.s3), Text(_msg, style: const TextStyle(color: Colors.white70))]))
       else if (feed.isEmpty) _empty()
       else PageView.builder(controller: _pc, scrollDirection: Axis.vertical, itemCount: feed.length,
-        onPageChanged: (i) => setState(() => _cur = i),
+        onPageChanged: (i) { setState(() => _cur = i); _prefetch(i + 1); },
         itemBuilder: (c, i) => (i - _cur).abs() > 1 ? const ColoredBox(color: Colors.black)   // لا يُحمَّل إلا الحالي والمجاوران
           : _ReelPage(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, muted: _muted, liked: _liked.contains(feed[i].key),
               onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onMute: () => setState(() => _muted = !_muted),
-              onError: (why) { if (looksBlocked(why)) _markBlocked(feed[i].url, why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
+              preferDownload: (_hosts[hostOf(feed[i].url)] as Map?)?['dl'] == true, onDownloaded: () => _markDl(feed[i].url),
+              onError: (why) { _markBlocked(feed[i].url, why.isEmpty ? 'تعذّر التشغيل والتنزيل' : why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
       // الشريط العلوي
       SafeArea(child: Padding(padding: const EdgeInsets.symmetric(horizontal: S.s2), child: Row(children: [
         IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.close_rounded, color: Colors.white)),
@@ -198,8 +227,8 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 
 /// مقطع واحد: يعمل حين يكون الحالي، يتكرر، ويحسب نسبة المشاهدة عند المغادرة.
 class _ReelPage extends ConsumerStatefulWidget {
-  const _ReelPage({super.key, required this.reel, required this.active, required this.muted, required this.liked, required this.onViewed, required this.onLike, required this.onMenu, required this.onMute, required this.onError});
-  final Reel reel; final bool active, muted, liked;
+  const _ReelPage({super.key, required this.reel, required this.active, required this.muted, required this.liked, required this.onViewed, required this.onLike, required this.onMenu, required this.onMute, required this.onError, this.preferDownload = false, required this.onDownloaded});
+  final Reel reel; final bool active, muted, liked, preferDownload; final VoidCallback onDownloaded;
   final void Function(double) onViewed; final VoidCallback onLike, onMenu, onMute; final void Function(String why) onError;
   @override ConsumerState<_ReelPage> createState() => _ReelPageState();
 }
@@ -208,14 +237,44 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   VideoPlayerController? _c; bool _err = false, _paused = false, _heart = false; String _why = '';
   Duration _maxPos = Duration.zero; int _loops = 0; Duration _last = Duration.zero;
 
+  double? _dl;   // تقدم التنزيل (عند الحاجة)
+
   @override
-  void initState() {
-    super.initState();
-    final c = VideoPlayerController.networkUrl(Uri.parse(widget.reel.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
-    _c = c;
-    c.initialize().then((_) { if (!mounted) return; c.setLooping(true); c.setVolume(widget.muted ? 0 : 1); if (widget.active) c.play(); setState(() {}); })
-      .catchError((Object e) { if (mounted) { setState(() { _err = true; _why = '$e'; }); widget.onError('$e'); } });
-    c.addListener(_tick);
+  void initState() { super.initState(); _start(); }
+
+  /// التشغيل الذكي: محفوظ على الجهاز ⇒ مباشرة من الشبكة ⇒ (إن فشل) تنزيل عبر شبكات النظام ثم تشغيل من الجهاز.
+  Future<void> _start() async {
+    final url = widget.reel.url;
+    final saved = await cachedClipPath(url);
+    if (saved != null) { if (await _open(_fileController(saved))) return; }
+    if (!widget.preferDownload) {
+      final ok = await _open(VideoPlayerController.networkUrl(Uri.parse(url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true)));
+      if (ok) return;
+    }
+    if (clipCacheSupported) {
+      if (mounted) setState(() { _err = false; _dl = 0; });
+      final path = await downloadClip(url, onProgress: (p) { if (mounted) setState(() => _dl = p); });
+      if (!mounted) return;
+      if (path != null && await _open(_fileController(path))) { _dl = null; widget.onDownloaded(); return; }
+    }
+    if (mounted) { setState(() { _dl = null; _err = true; }); widget.onError(_why); }
+  }
+
+  VideoPlayerController _fileController(String path) {
+    final f = fileVideoSource(path);
+    return f == null ? VideoPlayerController.networkUrl(Uri.file(path)) : VideoPlayerController.file(f as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
+  }
+
+  Future<bool> _open(VideoPlayerController c) async {
+    try {
+      await c.initialize();
+      if (!mounted) { await c.dispose(); return false; }
+      _c?.removeListener(_tick); final old = _c; _c = c; await old?.dispose();
+      c.setLooping(true); c.setVolume(widget.muted ? 0 : 1); c.addListener(_tick);
+      if (widget.active && !_paused) c.play();
+      setState(() { _err = false; });
+      return true;
+    } catch (e) { _why = '$e'; try { await c.dispose(); } catch (_) {} return false; }
   }
 
   void _tick() {
@@ -229,7 +288,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   @override
   void didUpdateWidget(covariant _ReelPage o) {
     super.didUpdateWidget(o);
-    final c = _c; if (c == null) return;
+    final c = _c; if (c == null || !c.value.isInitialized) { return; }
     if (o.muted != widget.muted) c.setVolume(widget.muted ? 0 : 1);
     if (o.active && !widget.active) { c.pause(); widget.onViewed(_frac); _maxPos = Duration.zero; _loops = 0; c.seekTo(Duration.zero); }
     if (!o.active && widget.active) { if (_err) { widget.onError(_why); } else if (c.value.isInitialized && !_paused) { c.play(); } }
@@ -249,6 +308,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
         const SizedBox(height: 6),
         Text('الخادم: ${Uri.tryParse(widget.reel.url)?.host ?? '?'}\n${_why.length > 160 ? _why.substring(0, 160) : _why}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white38, fontSize: 11)),
       ]))
+        : _dl != null ? Column(mainAxisSize: MainAxisSize.min, children: [CircularProgressIndicator(value: _dl! > 0 ? _dl : null), const SizedBox(height: 8), Text(_dl! > 0 ? 'تحميل المقطع ${(_dl! * 100).round()}٪' : 'تحميل المقطع…', style: const TextStyle(color: Colors.white70))])
         : const CircularProgressIndicator()),
     ]);
     return ValueListenableBuilder<bool>(valueListenable: blurPhotos, builder: (_, blur, _) => GestureDetector(
