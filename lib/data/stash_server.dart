@@ -41,6 +41,27 @@ class StashServer {
     return Map<String, dynamic>.from((j as Map)['data'] ?? {});
   }
 
+  /// بيانات إضافية لمقاطع الخادم (بمفتاح العمل «stash:ID»): العلامات، الصور المصغرة للتقديم، مكان التوقف وعدد المشاهدات.
+  static final extra = <String, StashExtra>{};
+
+  /// مزامنة مع Stash على حاسوبك: مكان التوقف ومدة المشاهدة (تظهر في Stash نفسه).
+  static Future<void> saveActivity(String id, {required double resume, required double played}) async {
+    try { await q(r'mutation($id:ID!,$r:Float,$d:Float){sceneSaveActivity(id:$id,resume_time:$r,playDuration:$d)}', {'id': id, 'r': resume, 'd': played}); } catch (_) {}
+  }
+  /// يُسجَّل «مشاهدة» في Stash (بعد مشاهدة فعلية).
+  static Future<void> addPlay(String id) async {
+    try { await q(r'mutation($id:ID!){sceneAddPlay(id:$id){count}}', {'id': id}); } catch (_) {}
+  }
+
+  /// ملف VTT للصور المصغرة (يُجلب بنفس شبكات النظام).
+  static Future<List<VttCue>> thumbs(String vttUrl) async {
+    if (vttUrl.isEmpty) return const [];
+    try {
+      final r = await sourceClient.get(Uri.parse(vttUrl)).timeout(const Duration(seconds: 12));
+      return r.statusCode == 200 ? parseVtt(utf8.decode(r.bodyBytes), vttUrl) : const [];
+    } catch (_) { return const []; }
+  }
+
   /// اختبار: يعيد إصدار Stash.
   static Future<String> test(String url, String key) async {
     final d = await q('query{version{version}}', null, (normalize(url), key.trim()));
@@ -75,7 +96,7 @@ class StashServer {
   static Future<List<WorkGroup>> scenes(Map<String, Performer> byLocal, {int page = 1}) async {
     if (byLocal.isEmpty) return const [];
     final c = await cfg();
-    final d = await q(r'query($ids:[ID!],$p:Int!){findScenes(scene_filter:{performers:{value:$ids,modifier:INCLUDES}},filter:{per_page:100,page:$p,sort:"random"}){count scenes{id title date files{duration width height} paths{stream preview screenshot} performers{id name} studio{name}}}}',
+    final d = await q(r'query($ids:[ID!],$p:Int!){findScenes(scene_filter:{performers:{value:$ids,modifier:INCLUDES}},filter:{per_page:100,page:$p,sort:"random"}){count scenes{id title date play_count resume_time files{duration width height} paths{stream preview screenshot vtt sprite} scene_markers{id title seconds end_seconds primary_tag{name}} performers{id name} studio{name}}}}',
       {'ids': byLocal.keys.toList(), 'p': page});
     final out = <WorkGroup>[];
     for (final s in ((d['findScenes'] as Map?)?['scenes'] as List?) ?? const []) {
@@ -94,6 +115,9 @@ class StashServer {
         ..tr = withKey(stream, c.$2)
         ..du = (((f?['duration'] as num?) ?? 0) / 60).round();
       g.who.addAll(who);
+      extra[g.key] = StashExtra('${s['id']}', vtt: withKey('${paths['vtt'] ?? ''}', c.$2), resume: ((s['resume_time'] as num?) ?? 0).toDouble(), plays: ((s['play_count'] as num?) ?? 0).toInt(),
+        markers: [for (final m in (s['scene_markers'] as List? ?? const [])) if (m is Map && m['seconds'] is num)
+          StashMarker((m['seconds'] as num).toDouble(), (m['end_seconds'] as num?)?.toDouble(), '${m['title'] ?? ''}'.trim().isNotEmpty ? '${m['title']}' : '${(m['primary_tag'] as Map?)?['name'] ?? ''}')]);
       out.add(g);
     }
     return out;
@@ -106,4 +130,63 @@ class StashServer {
   final r = Random(key.hashCode);
   final start = (durationSec * (.1 + r.nextDouble() * .7)).round();
   return (start.clamp(0, durationSec - len), len);
+}
+
+
+/// علامة داخل فيديو في Stash (أفضل اللقطات التي حددتها أنت أو إضافات التحليل): البداية والنهاية (اختيارية) والوسم.
+class StashMarker {
+  final double at; final double? end; final String label;
+  const StashMarker(this.at, this.end, this.label);
+}
+
+class StashExtra {
+  final String id, vtt; final double resume; final int plays; final List<StashMarker> markers;
+  const StashExtra(this.id, {this.vtt = '', this.resume = 0, this.plays = 0, this.markers = const []});
+}
+
+/// مقاطع قصيرة من العلامات بدل البداية العشوائية: (البداية، الطول، الوسم) — الطول من نهاية العلامة أو 30 ثانية، بين 8 و90، بلا تداخل، 3 كحد.
+List<(int, int, String)> markerSegments(List<StashMarker> ms, int durationSec, {int max = 3}) {
+  final out = <(int, int, String)>[];
+  for (final m in [...ms]..sort((a, b) => a.at.compareTo(b.at))) {
+    final s = m.at.floor(); if (s < 0 || (durationSec > 0 && s >= durationSec - 5)) continue;
+    var len = m.end != null && m.end! > m.at ? (m.end! - m.at).round() : 30;
+    len = len.clamp(8, 90);
+    if (durationSec > 0 && s + len > durationSec) len = durationSec - s;
+    if (out.isNotEmpty && s < out.last.$1 + out.last.$2) continue;   // لا تداخل
+    out.add((s, len, m.label));
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/// صورة مصغرة لنقطة زمنية: جزء [x,y,w,h] من صورة المصغرات [url].
+class VttCue {
+  final double start, end; final String url; final int x, y, w, h;
+  const VttCue(this.start, this.end, this.url, this.x, this.y, this.w, this.h);
+}
+
+double _vttTime(String t) {
+  final p = t.trim().split(':'); var s = 0.0;
+  for (final x in p) { s = s * 60 + (double.tryParse(x.replaceAll(',', '.')) ?? 0); }
+  return s;
+}
+
+/// يقرأ ملف WebVTT للمصغرات («00:00:05.000 --> 00:00:10.000» ثم «sprite.jpg#xywh=160,0,160,90»)، والرابط النسبي يُحل نسبةً لملف VTT (مع المفتاح).
+List<VttCue> parseVtt(String text, String base) {
+  final out = <VttCue>[]; final lines = const LineSplitter().convert(text);
+  final b = Uri.tryParse(base); final key = b?.queryParameters['apikey'] ?? '';
+  for (var i = 0; i < lines.length - 1; i++) {
+    final l = lines[i]; if (!l.contains('-->')) continue;
+    final t = l.split('-->'); final ref = lines[i + 1].trim();
+    final m = RegExp(r'^(.*)#xywh=(\d+),(\d+),(\d+),(\d+)$').firstMatch(ref); if (m == null) continue;
+    var u = m.group(1)!; final abs = b == null ? Uri.tryParse(u) : b.resolve(u);
+    if (abs != null) u = StashServer.withKey(abs.replace(queryParameters: {...abs.queryParameters}..remove('apikey')).toString(), key);
+    out.add(VttCue(_vttTime(t[0]), _vttTime(t[1].trim().split(' ').first), u, int.parse(m.group(2)!), int.parse(m.group(3)!), int.parse(m.group(4)!), int.parse(m.group(5)!)));
+  }
+  return out;
+}
+
+VttCue? cueAt(List<VttCue> cues, double sec) {
+  for (final c in cues) { if (sec >= c.start && sec < c.end) return c; }
+  return cues.isEmpty ? null : (sec >= cues.last.end ? cues.last : null);
 }

@@ -12,7 +12,7 @@ import '../../core/widgets.dart';
 /// مدة المشاهدة تُحسب بوقت البقاء على المقطع (لا يمكن قراءة مشغّل الموقع).
 class EmbedReel extends StatefulWidget {
   const EmbedReel({super.key, required this.reel, required this.active, required this.liked, required this.onViewed, required this.onLike, required this.onMenu, required this.onProfile});
-  final Reel reel; final bool active, liked; final void Function(double) onViewed; final VoidCallback onLike, onMenu, onProfile;
+  final Reel reel; final bool active, liked; final void Function(double frac, double secs) onViewed; final VoidCallback onLike, onMenu, onProfile;
   @override State<EmbedReel> createState() => _EmbedReelState();
 }
 
@@ -36,7 +36,7 @@ class _EmbedReelState extends State<EmbedReel> {
 
   void _activate() { if (kIsWeb) return; _w ??= _make(); _sw..reset()..start(); }
   void _deactivate() {
-    if (_sw.isRunning) { _sw.stop(); final d = widget.reel.g.du * 60; widget.onViewed(d <= 0 ? 0 : (_sw.elapsed.inSeconds / d).clamp(0.0, 1.0)); }
+    if (_sw.isRunning) { _sw.stop(); final d = widget.reel.g.du * 60; widget.onViewed(d <= 0 ? 0 : (_sw.elapsed.inSeconds / d).clamp(0.0, 1.0), _sw.elapsed.inMilliseconds / 1000); }
     _w?.loadRequest(Uri.parse('about:blank')); _w = null;   // يوقف الصوت ويحرر الذاكرة
   }
 

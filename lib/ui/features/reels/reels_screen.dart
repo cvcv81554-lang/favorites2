@@ -31,7 +31,7 @@ class ReelSigN extends AsyncNotifier<ReelSignals> {
   @override Future<ReelSignals> build() async => decayReels(ReelSignals.fromJson(await (await ref.watch(repoProvider.future)).kvGet('reels_sig')), reelDay());
   ReelSignals get _s => state.value ?? const ReelSignals({}, {});
   Future<void> _save(ReelSignals s) async { state = AsyncData(s); await (await ref.read(repoProvider.future)).kvSet('reels_sig', s.toJson()); }
-  Future<void> view(WorkGroup g, double frac, {bool like = false}) async => _save(recordView(_s, g, frac: frac, like: like));
+  Future<void> view(WorkGroup g, double frac, {bool like = false, double secs = -1}) async => _save(recordView(_s, g, frac: frac, like: like, secs: secs));
   Future<void> dislikeIt({String? performerId, String? studio, String? hideKey}) async => _save(dislike(_s, performerId: performerId, studio: studio, hideKey: hideKey));
   Future<void> act(WorkGroup g, String action) async => _save(recordAction(_s, g, action));
   Future<void> save(WorkGroup g) async => _save(toggleSave(_s, g));
@@ -78,6 +78,8 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
   int _seed = DateTime.now().millisecondsSinceEpoch;
   // مثل TikTok: السرعة، الوضع النظيف (بلا أزرار)، التمرير التلقائي، والتركيز
   double _speed = 1; bool _clean = false, _auto = false; ReelFocus? _focus;
+  // السحب للتحديث من أعلى الخلاصة، و«شاهدت كل الجديد»
+  bool _refreshing = false, _caughtUp = false; Set<String> _seenAtBuild = {}; DateTime _lastRefresh = DateTime(2000);
 
   @override void dispose() { _pc.dispose(); super.dispose(); }
 
@@ -96,6 +98,13 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     final server = <Reel>[];
     var k = 0;
     for (final r in rankReels(_server.where(inFocus).toList(), taste, sig, favsOnly: favs, seed: _seed, n: 200)) {
+      // علاماتك في Stash (أفضل اللقطات) أولًا؛ وإلا 45 ثانية من داخل الفيديو
+      final marks = markerSegments(StashServer.extra[r.g.key]?.markers ?? const [], r.g.du * 60);
+      if (marks.isNotEmpty) {
+        for (final m in marks) { server.add(r.variant(start: m.$1, len: m.$2, src: 'Stash · لقطة${m.$3.isEmpty ? '' : ': ${m.$3}'}')); }
+        if (++k % 4 == 0) server.add(r.variant(full: true, src: 'Stash · فيديو كامل'));
+        continue;
+      }
       final seg = shortSegment(r.g.key, r.g.du * 60);
       server.add(seg.$2 > 0 ? r.variant(start: seg.$1, len: seg.$2, src: 'Stash · مقطع قصير') : r.variant(full: true, src: 'Stash · فيديو كامل'));
       if (seg.$2 > 0 && ++k % 4 == 0) server.add(r.variant(full: true, src: 'Stash · فيديو كامل'));
@@ -104,7 +113,8 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     final embeds = [for (final r in rankReels(_embeds.where(inFocus).toList(), taste, sig, favsOnly: favs, seed: _seed, n: 200)) r.variant(full: true, src: '${embedSourceName(r.g.key)} · فيديو كامل')];
     _feed = weave(weave(trailers, server), embeds, bPerA: 1);
     _hidden = _scope().where((g) => !hostUsable(_hosts, g.tr) && !cached(g.tr)).length;
-    _cur = 0;
+    _cur = 0; _caughtUp = false;
+    _seenAtBuild = {for (final r in _feed!) if ((sig.clips[r.g.key]?['n'] ?? 0) > 0) r.key};
     final ready = _feed!.where((r) => cached(r.url)).length;
     if (_msg.isEmpty && _focus == null) _msg = '${_feed!.length} مقطعًا${ready > 0 ? ' ($ready جاهز على جهازك)' : ''}${_hidden > 0 ? ' · $_hidden مخفي (خوادمها محجوبة على شبكتك)' : ''}';
   }
@@ -233,7 +243,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     await _prepare();
   }
 
-  void _onViewed(Reel r, double frac) => ref.read(reelSigProvider.notifier).view(r.g, frac, like: false);
+  void _onViewed(Reel r, double frac, [double secs = -1]) => ref.read(reelSigProvider.notifier).view(r.g, frac, secs: secs);
 
   bool _isLiked(Reel r) => _sig.clips[r.g.key]?['l'] == 1;
   bool _isSaved(Reel r) => _sig.clips[r.g.key]?['s'] == 1;
@@ -355,6 +365,50 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     await ref.read(reelsCfgProvider.notifier).set(c.copy(sound: !_muted));
   }
 
+  /// السحب للأسفل في أول مقطع ⇒ خلاصة جديدة (ترتيب جديد بما تعلّمه).
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    HapticFeedback.mediumImpact();
+    _lastRefresh = DateTime.now();
+    setState(() { _refreshing = true; _seed++; _msg = ''; });
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() { _build(); _refreshing = false; });
+    if (_pc.hasClients) _pc.jumpToPage(0);
+  }
+
+  void _pageChanged(int i) {
+    setState(() => _cur = i); _prefetch(i + 1);
+    final f = _feed; if (f == null || i <= 0 || i >= f.length || _caughtUp) return;
+    if (_seenAtBuild.contains(f[i].key) && !_seenAtBuild.contains(f[i - 1].key)) {
+      _caughtUp = true; _toast('✓ شاهدت كل الجديد — التالي مقاطع شاهدتها من قبل');
+    }
+  }
+
+  /// «تابع المشاهدة»: فيديوهات خادمك التي توقفت في منتصفها (من Stash نفسه، فتشمل ما بدأته على الحاسوب).
+  void _continueWatching() {
+    final l = [for (final g in _server) if ((StashServer.extra[g.key]?.resume ?? 0) > 10) g];
+    if (l.isEmpty) { _toast(_server.isEmpty ? 'تابع المشاهدة يعمل مع خادم Stash الخاص بك' : 'لا فيديوهات متوقفة في منتصفها'); return; }
+    showModalBottomSheet(context: context, showDragHandle: true, isScrollControlled: true, builder: (c) => SafeArea(child: ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(c).height * .7), child: ListView(shrinkWrap: true, children: [
+      const Padding(padding: EdgeInsets.fromLTRB(S.s4, 0, S.s4, S.s2), child: Text('تابع المشاهدة', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
+      for (final g in l) () {
+        final ex = StashServer.extra[g.key]!; final d = g.du * 60;
+        return ListTile(
+          leading: ClipRRect(borderRadius: BorderRadius.circular(6), child: SizedBox(width: 80, height: 45, child: g.p.isEmpty ? const ColoredBox(color: Colors.black) : WorkImage(g.p, name: g.s))),
+          title: Text(g.t, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(g.who.map((p) => p.name).take(2).join('، '), maxLines: 1),
+            if (d > 0) Padding(padding: const EdgeInsets.only(top: 4), child: LinearProgressIndicator(value: (ex.resume / d).clamp(0.0, 1.0), minHeight: 3)),
+          ]),
+          onTap: () {
+            Navigator.pop(c);
+            Navigator.of(context).push(MaterialPageRoute(builder: (_) => FullVideoScreen(url: g.tr, title: g.t, start: ex.resume.round(), source: 'Stash', stashId: ex.id, vtt: ex.vtt,
+              onClosed: (x) => StashServer.extra[g.key] = StashExtra(ex.id, vtt: ex.vtt, resume: x, plays: ex.plays, markers: ex.markers))));
+          });
+      }(),
+    ]))));
+  }
+
   void _skip() { if (_feed != null && _cur + 1 < _feed!.length) _pc.nextPage(duration: const Duration(milliseconds: 280), curve: Curves.easeOut); }
 
   @override
@@ -367,19 +421,26 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     return Scaffold(backgroundColor: Colors.black, body: Stack(children: [
       if (!sigReady || (_preparing && feed.isEmpty)) Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const CircularProgressIndicator(), const SizedBox(height: S.s3), Text(_msg, style: const TextStyle(color: Colors.white70))]))
       else if (feed.isEmpty) _empty()
-      else PageView.builder(controller: _pc, scrollDirection: Axis.vertical, itemCount: feed.length,
-        onPageChanged: (i) { setState(() => _cur = i); _prefetch(i + 1); },
-        itemBuilder: (c, i) => (i - _cur).abs() > 1 ? const ColoredBox(color: Colors.black)   // لا يُحمَّل إلا الحالي والمجاوران
+      else NotificationListener<ScrollNotification>(onNotification: (n) {
+          // السحب للأسفل في أول مقطع (ارتداد iOS أو تجاوز Android) ⇒ تحديث
+          if (n.depth == 0 && _cur == 0 && !_refreshing && DateTime.now().difference(_lastRefresh).inSeconds >= 2 && ((n is ScrollUpdateNotification && n.metrics.pixels < -70) || (n is OverscrollNotification && n.overscroll < -12))) _refresh();
+          return false;
+        }, child: PageView.builder(controller: _pc, scrollDirection: Axis.vertical, itemCount: feed.length + 1,
+        allowImplicitScrolling: true,   // المقطع التالي (والسابق) يُجهَّز مسبقًا ⇒ يبدأ فورًا عند السحب
+        onPageChanged: _pageChanged,
+        itemBuilder: (c, i) => i == feed.length ? _endPage()
+          : (i - _cur).abs() > 1 ? const ColoredBox(color: Colors.black)   // لا يُحمَّل إلا الحالي والمجاوران (3 مشغّلات كحد أقصى)
           : feed[i].g.key.startsWith('emb:') ? EmbedReel(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, liked: _isLiked(feed[i]),
-              onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i], toggle: true), onMenu: () => _menu(feed[i]), onProfile: () => _profile(feed[i]))
+              onViewed: (f, s) => _onViewed(feed[i], f, s), onLike: () => _like(feed[i], toggle: true), onMenu: () => _menu(feed[i]), onProfile: () => _profile(feed[i]))
           : _ReelPage(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, muted: _muted, liked: _isLiked(feed[i]), saved: _isSaved(feed[i]), fav: isFav(feed[i]),
               speed: _speed, clean: _clean, auto: _auto,
-              onViewed: (f) => _onViewed(feed[i], f), onLike: (toggle) => _like(feed[i], toggle: toggle), onSave: () => _save(feed[i]), onMenu: () => _menu(feed[i]), onMute: _toggleSound,
+              onViewed: (f, s) => _onViewed(feed[i], f, s), onLike: (toggle) => _like(feed[i], toggle: toggle), onSave: () => _save(feed[i]), onMenu: () => _menu(feed[i]), onMute: _toggleSound,
               onProfile: (p) => _profile(feed[i], p), onFollow: () => _follow(feed[i]), onFocus: _setFocus, onEnded: () { if (i == _cur) _skip(); },
               onFull: () => ref.read(reelSigProvider.notifier).act(feed[i].g, 'full'),
               preferDownload: (_hosts[hostOf(feed[i].url)] as Map?)?['dl'] == true, onDownloaded: () => _markDl(feed[i].url),
               onQuality: (h, a) => _onQuality(feed[i], h, a),
-              onError: (why) { _markBlocked(feed[i].url, why.isEmpty ? 'تعذّر التشغيل والتنزيل' : why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
+              onError: (why) { _markBlocked(feed[i].url, why.isEmpty ? 'تعذّر التشغيل والتنزيل' : why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); }))),
+      if (_refreshing) const SafeArea(child: Padding(padding: EdgeInsets.only(top: 60), child: Align(alignment: Alignment.topCenter, child: SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))))),
       // الشريط العلوي (مثل TikTok: «مفضلاتي | لك» في الوسط)
       if (!_clean) SafeArea(child: SizedBox(height: 52, child: Stack(children: [
         Align(alignment: AlignmentDirectional.centerStart, child: IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.close_rounded, color: Colors.white, shadows: [Shadow(blurRadius: 8)]))),
@@ -391,6 +452,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
         Align(alignment: AlignmentDirectional.centerEnd, child: PopupMenuButton<String>(icon: const Icon(Icons.more_vert_rounded, color: Colors.white, shadows: [Shadow(blurRadius: 8)]),
           onSelected: (v) async {
             switch (v) {
+              case 'r': _continueWatching();
               case 'h': _openLibrary(0);
               case 's': _openLibrary(1);
               case 'l': _openLibrary(2);
@@ -401,6 +463,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
             }
           },
           itemBuilder: (_) => [
+            const PopupMenuItem(value: 'r', child: ListTile(leading: Icon(Icons.play_circle_outline_rounded), title: Text('تابع المشاهدة'))),
             const PopupMenuItem(value: 'h', child: ListTile(leading: Icon(Icons.history_rounded), title: Text('سجلّي'))),
             const PopupMenuItem(value: 's', child: ListTile(leading: Icon(Icons.bookmark_rounded), title: Text('المحفوظة'))),
             const PopupMenuItem(value: 'l', child: ListTile(leading: Icon(Icons.favorite_rounded), title: Text('أعجبتني'))),
@@ -421,6 +484,19 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
         child: Row(children: [Expanded(child: Text(_msg, style: const TextStyle(color: Colors.white70, fontSize: 12.5))), if (!_busy) IconButton(onPressed: () => setState(() => _msg = ''), icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white54))])))),
     ]));
   }
+
+  Widget _endPage() => Center(child: Padding(padding: const EdgeInsets.all(S.s5), child: Column(mainAxisSize: MainAxisSize.min, children: [
+    const Icon(Icons.check_circle_rounded, color: C.gold, size: 56),
+    const SizedBox(height: S.s3),
+    const Text('وصلت للنهاية', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+    const SizedBox(height: S.s2),
+    const Text('شاهدت كل مقاطع هذه الخلاصة. رتّبها من جديد بما تعلّمه التطبيق من مشاهدتك، أو اجلب الجديد.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, height: 1.6)),
+    const SizedBox(height: S.s4),
+    FilledButton.icon(onPressed: _refresh, icon: const Icon(Icons.shuffle_rounded), label: const Text('خلاصة جديدة')),
+    const SizedBox(height: S.s2),
+    OutlinedButton.icon(onPressed: _busy ? null : _fetch, icon: const Icon(Icons.download_rounded), label: const Text('جلب مقاطع جديدة'),
+      style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white38))),
+  ])));
 
   Widget _tab(String t, bool on, VoidCallback f) => GestureDetector(onTap: f, behavior: HitTestBehavior.opaque, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), child: Column(mainAxisSize: MainAxisSize.min, children: [
     Text(t, style: TextStyle(color: on ? Colors.white : Colors.white60, fontWeight: on ? FontWeight.w800 : FontWeight.w600, fontSize: 16.5, shadows: const [Shadow(blurRadius: 8)])),
@@ -450,7 +526,7 @@ class _ReelPage extends ConsumerStatefulWidget {
     required this.onFocus, required this.onEnded, required this.onFull, required this.onError, this.preferDownload = false, required this.onDownloaded, required this.onQuality});
   final Reel reel; final bool active, muted, liked, saved, fav, preferDownload, clean, auto; final double speed;
   final VoidCallback onDownloaded, onSave, onMenu, onMute, onFollow, onEnded, onFull; final void Function(int h, int? audio) onQuality;
-  final void Function(double) onViewed; final void Function(bool toggle) onLike; final void Function(String why) onError;
+  final void Function(double frac, double secs) onViewed; final void Function(bool toggle) onLike; final void Function(String why) onError;
   final void Function(Performer p) onProfile; final void Function(ReelFocus f) onFocus;
   @override ConsumerState<_ReelPage> createState() => _ReelPageState();
 }
@@ -460,6 +536,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   Duration _maxPos = Duration.zero; int _loops = 0; Duration _last = Duration.zero;
   final _hearts = <(int, Offset)>[]; int _heartId = 0; Offset _tapAt = Offset.zero;
   String? _savedPath;
+  final _watch = Stopwatch();   // ثواني المشاهدة الفعلية (أثناء التشغيل فقط)
 
   double? _dl;   // تقدم التنزيل (عند الحاجة)
 
@@ -525,6 +602,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     if (r.len > 0 && v.position >= Duration(seconds: r.start + r.len)) { _loopDone(); _last = Duration(seconds: r.start); c.seekTo(Duration(seconds: r.start)); return; }   // مقطع قصير يتكرر
     if (v.position < _last - const Duration(seconds: 1)) _loopDone();   // رجع للبداية ⇒ إعادة
     _last = v.position; if (v.position > _maxPos) _maxPos = v.position;
+    if (widget.active && v.isPlaying) { if (!_watch.isRunning) _watch.start(); } else if (_watch.isRunning) { _watch.stop(); }
     if (mounted) setState(() {});   // شريط التقدم
   }
 
@@ -540,12 +618,12 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final c = _c; if (c == null || !c.value.isInitialized) { return; }
     if (o.muted != widget.muted) c.setVolume(widget.muted ? 0 : 1);
     if (o.speed != widget.speed) c.setPlaybackSpeed(widget.speed);
-    if (o.active && !widget.active) { c.pause(); widget.onViewed(_frac); _maxPos = Duration.zero; _loops = 0; _ended = false; c.seekTo(Duration(seconds: widget.reel.start)); }
+    if (o.active && !widget.active) { c.pause(); _watch.stop(); widget.onViewed(_frac, _watch.elapsedMilliseconds / 1000); _watch.reset(); _maxPos = Duration.zero; _loops = 0; _ended = false; c.seekTo(Duration(seconds: widget.reel.start)); }
     if (!o.active && widget.active) { if (_err) { widget.onError(_why); } else if (c.value.isInitialized && !_paused) { c.play(); } }
   }
 
   @override
-  void dispose() { if (widget.active) widget.onViewed(_frac); _c?.removeListener(_tick); _c?.dispose(); super.dispose(); }
+  void dispose() { if (widget.active) widget.onViewed(_frac, _watch.elapsedMilliseconds / 1000); _c?.removeListener(_tick); _c?.dispose(); super.dispose(); }
 
   void _doubleTap() {
     widget.onLike(false);
@@ -560,7 +638,9 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     c?.pause(); setState(() => _paused = true);
     widget.onFull();
     final f = _savedPath == null ? null : fileVideoSource(_savedPath!);
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => FullVideoScreen(url: r.url, title: r.g.t, start: at, source: r.src.split(' · ').first, file: f)));
+    final ex = StashServer.extra[r.g.key];
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => FullVideoScreen(url: r.url, title: r.g.t, start: at, source: r.src.split(' · ').first, file: f, stashId: ex?.id ?? '', vtt: ex?.vtt ?? '',
+      onClosed: ex == null ? null : (x) => StashServer.extra[r.g.key] = StashExtra(ex.id, vtt: ex.vtt, resume: x, plays: ex.plays, markers: ex.markers))));
   }
 
   String _t(Duration d) => '${d.inMinutes}:${'${d.inSeconds % 60}'.padLeft(2, '0')}';

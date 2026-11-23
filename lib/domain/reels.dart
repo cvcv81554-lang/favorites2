@@ -87,16 +87,34 @@ bool reelFocusMatch(WorkGroup g, String kind, String v) => switch (kind) {
 
 Iterable<String> _affKeys(WorkGroup g) sync* { for (final p in g.who) { yield 'pf:${p.id}'; } if (g.s.trim().isNotEmpty) yield 'st:${norm(g.s)}'; }
 
-/// تحديث بعد مشاهدة مقطع: [frac] نسبة ما شوهد (قد تتجاوز 1 عند الإعادة)، [like] إعجاب.
-/// إكمال/إعادة/إعجاب ⇒ ميل إيجابي لممثلاته واستوديوه؛ تخطٍّ سريع (< 15٪) ⇒ ميل سلبي خفيف.
-ReelSignals recordView(ReelSignals s, WorkGroup g, {required double frac, bool like = false}) {
+/// فترة اليوم: 0 صباحًا (5–11)، 1 عصرًا (12–17)، 2 مساءً (18–22)، 3 ليلًا.
+int dayPart(int hour) => hour >= 5 && hour < 12 ? 0 : hour >= 12 && hour < 18 ? 1 : hour >= 18 && hour < 23 ? 2 : 3;
+const dayPartName = ['صباحًا', 'عصرًا', 'مساءً', 'ليلًا'];
+
+/// قوة إشارة المشاهدة: الإعادة أقوى إشارة (كما وجدت تحقيقات TikTok)، ووقت المشاهدة بالثواني يمنع اعتبار
+/// مشاهدة 3 دقائق من فيديو كامل طويل «تخطّيًا» لأن نسبتها صغيرة.
+double viewSignal(double frac, double secs) {
+  final byFrac = frac >= 1.8 ? 1.0 : frac >= 1.0 ? .6 : frac >= .9 ? .5 : frac >= .5 ? .2 : 0.0;
+  final bySecs = secs >= 180 ? .6 : secs >= 60 ? .4 : secs >= 20 ? .15 : 0.0;
+  final skip = frac < .15 && (secs < 0 || secs < 5);
+  return skip ? -.35 : max(byFrac, bySecs);
+}
+
+/// تحديث بعد مشاهدة مقطع: [frac] نسبة ما شوهد (قد تتجاوز 1 عند الإعادة)، [secs] ثواني المشاهدة الفعلية (−1 = غير معروف)، [like] إعجاب.
+/// يتعلم أيضًا حسب فترة اليوم ([hour]): ما تحبه ليلًا قد يختلف عما تحبه عصرًا.
+ReelSignals recordView(ReelSignals s, WorkGroup g, {required double frac, bool like = false, double secs = -1, int? hour}) {
   final c = {...s.clips}; final a = {...s.aff};
   final m = {...?c[g.key]};
   m['n'] = (m['n'] ?? 0) + 1; m['w'] = max((m['w'] ?? 0).toDouble(), frac); if (like) m['l'] = 1;
-  if (frac > 0 || like) m['v'] = _nowSec();   // «سجلّي»
+  if (secs > 0) m['t'] = (m['t'] ?? 0) + secs.round();
+  if (frac > 0 || like || secs > 0) m['v'] = _nowSec();   // «سجلّي»
   c[g.key] = m;
-  final sig = (frac >= 1.8 ? .7 : frac >= .9 ? .5 : frac >= .5 ? .2 : frac < .15 ? -.35 : 0.0) + (like ? .9 : 0);
-  for (final k in _affKeys(g)) { a[k] = ((a[k] ?? 0) * .97 + sig).clamp(-2.0, 2.0); }
+  final sig = viewSignal(frac, secs) + (like ? .9 : 0);
+  final part = dayPart(hour ?? DateTime.now().hour);
+  for (final k in _affKeys(g)) {
+    a[k] = ((a[k] ?? 0) * .97 + sig).clamp(-2.0, 2.0);
+    a['d$part|$k'] = ((a['d$part|$k'] ?? 0) * .97 + sig).clamp(-2.0, 2.0);
+  }
   return ReelSignals(c, a, s.day);
 }
 
@@ -113,8 +131,9 @@ ReelSignals dislike(ReelSignals s, {String? performerId, String? studio, String?
 /// ثم تشكيل الخلاصة: ~80٪ الأفضل و~20٪ استكشاف (ممثلات/استوديوهات أقل ظهورًا)، ولا تتكرر ممثلة خلال 3 مقاطع متتالية.
 /// [playable]: هل يعمل الخادم (أو المقطع محفوظ)؛ [isCached]: محفوظ على الجهاز (يُفضَّل قليلًا: يعمل فورًا)؛
 /// [photoFallback]: ما لا يعمل يصبح «مقطع صور» بأولوية أقل بدل أن يختفي.
-List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool favsOnly = true, int seed = 0, int n = 80, bool Function(String url)? playable, bool Function(String url)? isCached, bool photoFallback = false}) {
+List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool favsOnly = true, int seed = 0, int n = 80, bool Function(String url)? playable, bool Function(String url)? isCached, bool photoFallback = false, int? hour}) {
   final pool = <(WorkGroup, double, String)>[];
+  final part = dayPart(hour ?? DateTime.now().hour);
   for (final g in all) {
     if (g.tr.isEmpty || g.who.isEmpty) continue;
     final asPhoto = playable != null && !playable(g.tr);
@@ -134,6 +153,11 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
       if (v > .6 && affWhy == null) affWhy = k.startsWith('pf:') ? 'لأنك تكمل مقاطع ${g.who.firstWhere((p) => 'pf:${p.id}' == k, orElse: () => g.who.first).name}' : 'لأنك تحب مقاطع ${g.s}';
     }
     score += aff * .6;
+    // ميلك في هذه الفترة من اليوم
+    var partAff = 0.0;
+    for (final k in _affKeys(g)) { partAff += sig.aff['d$part|$k'] ?? 0; }
+    score += partAff * .35;
+    if (affWhy == null && partAff > 1) affWhy = 'لأنك تشاهد مثله عادةً ${dayPartName[part]}';
     final yr = int.tryParse(g.y) ?? 0; if (yr > 0) score += max(0, yr - 2015) * .02;
     score -= ((c?['n'] ?? 0) * .35).toDouble();                       // ما رأيته ينزل تدريجيًا
     if (c?['l'] == 1) score += .2;
