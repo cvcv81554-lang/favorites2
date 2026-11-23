@@ -13,16 +13,17 @@ const clipsTaskId = 'com.favlib.favorites2.clips';
 class ReelsCfg {
   /// [hqOnly]: إعلانات حقيقية فقط (بصوت و480p فأعلى) — المعاينات الصامتة منخفضة الجودة تُتخطى.
   /// [emb]: مواقع التضمين الرسمية المفعّلة (ph / rt / ep).
-  final bool prefetch, night, catchUp, sound, hqOnly, server; final int count, gb; final List<String> emb;
-  const ReelsCfg({this.prefetch = true, this.night = true, this.catchUp = true, this.sound = true, this.hqOnly = true, this.server = true, this.count = 100, this.gb = 3, this.emb = const ['ph', 'rt', 'ep']});
-  Map<String, dynamic> toJson() => {'pf': prefetch, 'night': night, 'cu': catchUp, 'snd': sound, 'hq': hqOnly, 'srv': server, 'n': count, 'gb': gb, 'emb': emb};
+  /// [auto]: تمرير تلقائي للمقطع التالي عند انتهاء الحالي؛ [favTab]: آخر تبويب («مفضلاتي»).
+  final bool prefetch, night, catchUp, sound, hqOnly, server, auto, favTab; final int count, gb; final List<String> emb;
+  const ReelsCfg({this.prefetch = true, this.night = true, this.catchUp = true, this.sound = true, this.hqOnly = true, this.server = true, this.auto = false, this.favTab = false, this.count = 100, this.gb = 3, this.emb = const ['ph', 'rt', 'ep']});
+  Map<String, dynamic> toJson() => {'pf': prefetch, 'night': night, 'cu': catchUp, 'snd': sound, 'hq': hqOnly, 'srv': server, 'auto': auto, 'ft': favTab, 'n': count, 'gb': gb, 'emb': emb};
   factory ReelsCfg.fromJson(Object? j) {
     final m = j is Map ? j : const {};
-    return ReelsCfg(prefetch: m['pf'] != false, night: m['night'] != false, catchUp: m['cu'] != false, sound: m['snd'] != false, hqOnly: m['hq'] != false, server: m['srv'] != false,
+    return ReelsCfg(prefetch: m['pf'] != false, night: m['night'] != false, catchUp: m['cu'] != false, sound: m['snd'] != false, hqOnly: m['hq'] != false, server: m['srv'] != false, auto: m['auto'] == true, favTab: m['ft'] == true,
       count: (m['n'] as num?)?.toInt() ?? 100, gb: (m['gb'] as num?)?.toInt() ?? 3, emb: m['emb'] is List ? [for (final x in m['emb'] as List) '$x'] : const ['ph', 'rt', 'ep']);
   }
-  ReelsCfg copy({bool? prefetch, bool? night, bool? catchUp, bool? sound, bool? hqOnly, bool? server, int? count, int? gb, List<String>? emb}) =>
-    ReelsCfg(prefetch: prefetch ?? this.prefetch, night: night ?? this.night, catchUp: catchUp ?? this.catchUp, sound: sound ?? this.sound, hqOnly: hqOnly ?? this.hqOnly, server: server ?? this.server, count: count ?? this.count, gb: gb ?? this.gb, emb: emb ?? this.emb);
+  ReelsCfg copy({bool? prefetch, bool? night, bool? catchUp, bool? sound, bool? hqOnly, bool? server, bool? auto, bool? favTab, int? count, int? gb, List<String>? emb}) =>
+    ReelsCfg(prefetch: prefetch ?? this.prefetch, night: night ?? this.night, catchUp: catchUp ?? this.catchUp, sound: sound ?? this.sound, hqOnly: hqOnly ?? this.hqOnly, server: server ?? this.server, auto: auto ?? this.auto, favTab: favTab ?? this.favTab, count: count ?? this.count, gb: gb ?? this.gb, emb: emb ?? this.emb);
 }
 
 /// قائمة التحميل: ترتيب الخلاصة نفسه (ما ستراه أولًا)، مقاطع حقيقية فقط، والخوادم العاملة.

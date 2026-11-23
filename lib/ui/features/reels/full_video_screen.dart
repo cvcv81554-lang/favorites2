@@ -6,13 +6,14 @@ import '../../core/theme.dart';
 
 /// مشغّل الفيديو الكامل (من خادمك أو أي مصدر بث مباشر): تشغيل/إيقاف، تقديم وتأخير 10 ثوانٍ، شريط تمرير، وملء الشاشة بالعرض.
 class FullVideoScreen extends StatefulWidget {
-  const FullVideoScreen({super.key, required this.url, required this.title, this.start = 0, this.source = ''});
-  final String url, title, source; final int start;
+  const FullVideoScreen({super.key, required this.url, required this.title, this.start = 0, this.source = '', this.file});
+  final String url, title, source; final int start; final Object? file;   // file: ملف المقطع المحفوظ على الجهاز (إن وُجد)
   @override State<FullVideoScreen> createState() => _FullVideoState();
 }
 
 class _FullVideoState extends State<FullVideoScreen> {
-  late final VideoPlayerController _c = VideoPlayerController.networkUrl(Uri.parse(widget.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false));
+  late final VideoPlayerController _c = widget.file != null ? VideoPlayerController.file(widget.file as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false))
+    : VideoPlayerController.networkUrl(Uri.parse(widget.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false));
   bool _ui = true, _err = false;
 
   @override

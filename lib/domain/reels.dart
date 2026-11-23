@@ -32,14 +32,58 @@ class ReelSignals {
   final Map<String, Map<String, num>> clips;
   /// «pf:<ممثلة>» / «st:<استوديو>» ⇒ ميل متعلَّم (−2..2)
   final Map<String, double> aff;
-  const ReelSignals(this.clips, this.aff);
+  /// آخر يوم طُبِّق فيه تلاشي الميول (أيام منذ 1970) — حقل اختياري جديد «d».
+  final int day;
+  const ReelSignals(this.clips, this.aff, [this.day = 0]);
   factory ReelSignals.fromJson(Object? j) {
     final m = j is Map ? j : const {};
     return ReelSignals({for (final e in ((m['c'] as Map?) ?? const {}).entries) '${e.key}': Map<String, num>.from(e.value as Map)},
-      {for (final e in ((m['a'] as Map?) ?? const {}).entries) '${e.key}': (e.value as num).toDouble()});
+      {for (final e in ((m['a'] as Map?) ?? const {}).entries) '${e.key}': (e.value as num).toDouble()}, (m['d'] as num?)?.toInt() ?? 0);
   }
-  Map<String, dynamic> toJson() => {'c': clips, 'a': aff};
+  Map<String, dynamic> toJson() => {'c': clips, 'a': aff, if (day > 0) 'd': day};
 }
+
+int _nowSec() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+int reelDay([DateTime? t]) => (t ?? DateTime.now()).millisecondsSinceEpoch ~/ 86400000;
+
+/// تلاشي الاهتمام مع الوقت (مثل TikTok: الذوق القديم لا يحبسك): كل يوم ×0.985، عدا «أقل منها» الصريح (−2) يبقى.
+ReelSignals decayReels(ReelSignals s, int today) {
+  if (s.day == 0) return ReelSignals(s.clips, s.aff, today);
+  final days = today - s.day; if (days <= 0) return s;
+  final f = pow(.985, days).toDouble();
+  return ReelSignals(s.clips, {for (final e in s.aff.entries) e.key: e.value <= -1.99 ? e.value : e.value * f}, today);
+}
+
+/// إشارات إضافية (من الإشارات التي أعلنتها TikTok): زيارة ملفها، فتح الفيديو كاملًا، إضافتها للمفضلة، و«غير مهتم».
+const reelActionWeight = {'profile': .4, 'full': .7, 'follow': .9, 'nope': -.8};
+ReelSignals recordAction(ReelSignals s, WorkGroup g, String action) {
+  final w = reelActionWeight[action] ?? 0; final c = {...s.clips}; final a = {...s.aff};
+  if (action == 'nope') c[g.key] = {...?c[g.key], 'h': 1};
+  for (final k in _affKeys(g)) { a[k] = ((a[k] ?? 0) + w).clamp(-2.0, 2.0); }
+  return ReelSignals(c, a, s.day);
+}
+
+/// حفظ/إلغاء حفظ (🔖). الحفظ إشارة إيجابية قوية.
+ReelSignals toggleSave(ReelSignals s, WorkGroup g) {
+  final c = {...s.clips}; final a = {...s.aff}; final m = {...?c[g.key]};
+  final on = m['s'] != 1; if (on) { m['s'] = 1; m['st'] = _nowSec(); } else { m.remove('s'); }
+  c[g.key] = m;
+  if (on) { for (final k in _affKeys(g)) { a[k] = ((a[k] ?? 0) + .6).clamp(-2.0, 2.0); } }
+  return ReelSignals(c, a, s.day);
+}
+
+/// مفاتيح المقاطع: «سجلّي» (الأحدث مشاهدة أولًا)، «المحفوظة»، «أعجبتني».
+List<String> reelHistory(ReelSignals s) => (s.clips.entries.where((e) => (e.value['v'] ?? 0) > 0).toList()..sort((a, b) => (b.value['v'] ?? 0).compareTo(a.value['v'] ?? 0))).map((e) => e.key).toList();
+List<String> reelSaved(ReelSignals s) => (s.clips.entries.where((e) => e.value['s'] == 1).toList()..sort((a, b) => (b.value['st'] ?? 0).compareTo(a.value['st'] ?? 0))).map((e) => e.key).toList();
+List<String> reelLiked(ReelSignals s) => s.clips.entries.where((e) => e.value['l'] == 1).map((e) => e.key).toList();
+
+/// تركيز الخلاصة (الضغط على اسم/وسم/استوديو في التعليق): pf = ممثلة، st = استوديو، tg = وسم.
+bool reelFocusMatch(WorkGroup g, String kind, String v) => switch (kind) {
+  'pf' => g.who.any((p) => p.id == v),
+  'st' => norm(g.s) == norm(v),
+  'tg' => g.tg.any((x) => norm(x) == norm(v)),
+  _ => true,
+};
 
 Iterable<String> _affKeys(WorkGroup g) sync* { for (final p in g.who) { yield 'pf:${p.id}'; } if (g.s.trim().isNotEmpty) yield 'st:${norm(g.s)}'; }
 
@@ -49,10 +93,11 @@ ReelSignals recordView(ReelSignals s, WorkGroup g, {required double frac, bool l
   final c = {...s.clips}; final a = {...s.aff};
   final m = {...?c[g.key]};
   m['n'] = (m['n'] ?? 0) + 1; m['w'] = max((m['w'] ?? 0).toDouble(), frac); if (like) m['l'] = 1;
+  if (frac > 0 || like) m['v'] = _nowSec();   // «سجلّي»
   c[g.key] = m;
   final sig = (frac >= 1.8 ? .7 : frac >= .9 ? .5 : frac >= .5 ? .2 : frac < .15 ? -.35 : 0.0) + (like ? .9 : 0);
   for (final k in _affKeys(g)) { a[k] = ((a[k] ?? 0) * .97 + sig).clamp(-2.0, 2.0); }
-  return ReelSignals(c, a);
+  return ReelSignals(c, a, s.day);
 }
 
 /// «أقل منها» / «أقل من هذا الاستوديو» / إخفاء المقطع.
@@ -61,7 +106,7 @@ ReelSignals dislike(ReelSignals s, {String? performerId, String? studio, String?
   if (performerId != null) a['pf:$performerId'] = -2;
   if (studio != null) a['st:${norm(studio)}'] = -2;
   if (hideKey != null) c[hideKey] = {...?c[hideKey], 'h': 1};
-  return ReelSignals(c, a);
+  return ReelSignals(c, a, s.day);
 }
 
 /// ترتيب المقاطع: ذوقك في الأعمال + ميلك المتعلَّم هنا + المفضلة + الحداثة − ما رأيته كثيرًا،
@@ -101,8 +146,9 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
   pool.sort((a, b) => b.$2.compareTo(a.$2));
   final rnd = Random(seed);
   final explorePool = pool.where((x) => x.$1.who.every((p) => (sig.aff['pf:${p.id}'] ?? 0).abs() < .3)).toList()..shuffle(rnd);
-  final used = <String>{}; final out = <Reel>[]; final recent = <String>[];
-  bool fits((WorkGroup, double, String) x) => !used.contains(x.$1.key) && !x.$1.who.any((p) => recent.contains(p.id));
+  final used = <String>{}; final out = <Reel>[]; final recent = <String>[]; final recentSt = <String>[];
+  bool fitsP((WorkGroup, double, String) x) => !used.contains(x.$1.key) && !x.$1.who.any((p) => recent.contains(p.id));
+  bool fits((WorkGroup, double, String) x) => fitsP(x) && (x.$1.s.trim().isEmpty || !recentSt.contains(norm(x.$1.s)));
   var i = 0, e = 0;
   while (out.length < n && (i < pool.length || e < explorePool.length)) {
     final exploreTurn = rnd.nextDouble() < .2 && e < explorePool.length;
@@ -110,6 +156,7 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
     if (exploreTurn) { while (e < explorePool.length && pick == null) { final x = explorePool[e++]; if (fits(x)) pick = x; } }
     if (pick == null) {
       for (var k = i; k < pool.length; k++) { if (fits(pool[k])) { pick = pool[k]; if (k == i) i++; break; } }
+      if (pick == null) { for (var k = i; k < pool.length; k++) { if (fitsP(pool[k])) { pick = pool[k]; if (k == i) i++; break; } } }
       if (pick == null) { // لا يناسب التنويع: نسمح بالتكرار القريب بدل التوقف
         while (i < pool.length && used.contains(pool[i].$1.key)) { i++; }
         if (i >= pool.length) break;
@@ -121,6 +168,7 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
     out.add(Reel(pick.$1, pick.$1.tr, ph ? pick.$3 : exploreTurn ? 'استكشاف: شيء مختلف قليلًا' : pick.$3, explore: exploreTurn && !ph, photo: ph,
       images: ph ? [pick.$1.p, for (final p in pick.$1.who) ...p.photos.take(2)].where((x) => x.isNotEmpty).toList() : const []));
     recent.addAll(pick.$1.who.map((p) => p.id)); while (recent.length > 3) { recent.removeAt(0); }
+    if (pick.$1.s.trim().isNotEmpty) { recentSt.add(norm(pick.$1.s)); if (recentSt.length > 1) recentSt.removeAt(0); }
   }
   return out;
 }
