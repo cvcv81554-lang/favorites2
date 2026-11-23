@@ -7,10 +7,23 @@ import 'works.dart';
 /// «مقاطع»: إعلانات الأعمال الرسمية لممثلاتك في واجهة رأسية — بخوارزمية محلية تتعلم من سلوكك (لا يُرسل شيء لأي جهة).
 
 /// [photo]: «مقطع صور» بديل لعمل مقطعه محجوب على شبكتك (صورة العمل + صور ممثلاته بحركة بطيئة) — مُعلَّم بوضوح.
+/// [src]: المصدر الظاهر على المقطع؛ [start]/[len]: مقطع قصير من فيديو كامل (ثوانٍ، 0 = كامل)؛ [full]: فيديو كامل.
 class Reel {
-  final WorkGroup g; final String url, why; final bool explore, photo; final List<String> images;
-  const Reel(this.g, this.url, this.why, {this.explore = false, this.photo = false, this.images = const []});
-  String get key => g.key;
+  final WorkGroup g; final String url, why, src; final bool explore, photo, full; final List<String> images; final int start, len;
+  const Reel(this.g, this.url, this.why, {this.explore = false, this.photo = false, this.images = const [], this.src = 'ThePornDB · إعلان', this.start = 0, this.len = 0, this.full = false});
+  String get key => '${g.key}${start > 0 ? '@$start' : ''}${full ? '#full' : ''}';
+  Reel variant({int start = 0, int len = 0, bool full = false, String? src}) => Reel(g, url, why, explore: explore, src: src ?? this.src, start: start, len: len, full: full);
+}
+
+/// دمج خلاصتين بالتناوب (مقطعان من [b] لكل مقطع من [a] ما دام الاثنان متاحين)، بلا تكرار.
+List<Reel> weave(List<Reel> a, List<Reel> b, {int bPerA = 2}) {
+  final out = <Reel>[]; var i = 0, j = 0; final seen = <String>{};
+  void add(Reel r) { if (seen.add(r.key)) out.add(r); }
+  while (i < a.length || j < b.length) {
+    if (i < a.length) add(a[i++]);
+    for (var k = 0; k < bPerA && j < b.length; k++) { add(b[j++]); }
+  }
+  return out;
 }
 
 /// إشارات المشاهدة المحفوظة على الجهاز.

@@ -5,7 +5,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>لإضافة صور من معرضك إلى مكتبتك الخاصة</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>لإرسال مكتبتك إلى تطبيق المفضلة على شاشتك في نفس الشبكة</string>
+	<string>لإرسال مكتبتك إلى تطبيق المفضلة على شاشتك، وللاتصال بخادم Stash الخاص بك على نفس الشبكة</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

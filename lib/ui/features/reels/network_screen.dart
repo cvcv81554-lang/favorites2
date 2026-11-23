@@ -2,9 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../data/clip_prefetch.dart';
+import '../../../data/embed_sources.dart';
 import '../../../data/keys.dart';
 import '../../../data/platform/clip_cache.dart';
 import '../../../data/sources.dart';
+import '../../../data/stash_server.dart';
 import '../../../domain/reels.dart';
 import '../../core/state.dart';
 import '../../core/theme.dart';
@@ -83,6 +85,8 @@ class _NetworkState extends ConsumerState<NetworkScreen> {
             TextButton(onPressed: pf.running ? null : () async { await clearClipCache(); await ref.read(prefetchProvider.notifier).refreshStats(); }, child: const Text('مسح المحفوظ', style: TextStyle(color: C.danger))),
           ]),
         ]),
+        const _StashServerCard(),
+        const _EmbedCard(),
         card('الجودة', [
           SwitchListTile(contentPadding: EdgeInsets.zero, value: cfg.hqOnly, onChanged: (v) => cn.set(cfg.copy(hqOnly: v)), title: const Text('إعلانات حقيقية فقط'),
             subtitle: const Text('يتخطى المعاينات القصيرة بلا صوت أو أقل من 480p (تُقاس عند التشغيل)، ويستبعد الخادم الذي معظم مقاطعه معاينات', style: TextStyle(color: C.muted, fontSize: 12.5))),
@@ -115,5 +119,88 @@ class _NetworkState extends ConsumerState<NetworkScreen> {
         ]),
       ]),
     );
+  }
+}
+
+
+/// إعداد خادم Stash الخاص بك: العنوان + المفتاح (المخزن الآمن) + اختبار + إظهار مقاطعه.
+class _StashServerCard extends ConsumerStatefulWidget {
+  const _StashServerCard();
+  @override ConsumerState<_StashServerCard> createState() => _StashServerCardState();
+}
+class _StashServerCardState extends ConsumerState<_StashServerCard> {
+  final _url = TextEditingController(), _key = TextEditingController();
+  String _msg = ''; bool _busy = false, _ok = false;
+  @override void initState() { super.initState(); () async { _url.text = await ApiKeys.get(StashServer.urlKey); _key.text = await ApiKeys.get(StashServer.apiKey); if (mounted) setState(() {}); }(); }
+  @override void dispose() { _url.dispose(); _key.dispose(); super.dispose(); }
+
+  Future<void> _save() async {
+    setState(() { _busy = true; _msg = 'اختبار الاتصال…'; });
+    try {
+      final v = await StashServer.test(_url.text, _key.text);
+      await ApiKeys.set(StashServer.urlKey, StashServer.normalize(_url.text)); await ApiKeys.set(StashServer.apiKey, _key.text);
+      final repo = await ref.read(repoProvider.future); await repo.kvSet('stash_local_map', {});   // يُعاد ربط الممثلات بالخادم الجديد
+      setState(() { _ok = true; _msg = 'متصل ✓ — Stash $v. افتح «مقاطع» لتظهر فيديوهات ممثلاتك.'; });
+    } on SourceError catch (e) { setState(() { _ok = false; _msg = e.msg; }); }
+    catch (e) { setState(() { _ok = false; _msg = '$e'; }); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cfg = ref.watch(reelsCfgProvider).value ?? const ReelsCfg();
+    return Container(margin: const EdgeInsets.only(bottom: S.s3), padding: const EdgeInsets.all(S.s3),
+      decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: C.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('خادم Stash الخاص بك', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 15)),
+        const SizedBox(height: 4),
+        const Text('فيديوهاتك الكاملة ومقاطع قصيرة منها — من برنامج Stash المجاني على حاسوبك (نفس عائلة StashDB). يعمل والجوال على نفس شبكة المنزل.', style: TextStyle(color: C.muted, fontSize: 12.5, height: 1.5)),
+        const SizedBox(height: S.s2),
+        TextField(controller: _url, keyboardType: TextInputType.url, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'عنوان الخادم', hintText: '192.168.1.10:9999')),
+        const SizedBox(height: S.s2),
+        TextField(controller: _key, obscureText: true, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'API Key (إن كان للخادم كلمة مرور)')),
+        const SizedBox(height: S.s2),
+        Row(children: [
+          FilledButton.tonalIcon(onPressed: _busy ? null : _save, icon: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.link_rounded), label: const Text('حفظ واختبار')),
+          const Spacer(),
+          const Text('إظهار مقاطعه'), Switch(value: cfg.server, onChanged: (v) => ref.read(reelsCfgProvider.notifier).set(cfg.copy(server: v))),
+        ]),
+        if (_msg.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text(_msg, style: TextStyle(color: _ok ? C.ok : C.gold, fontSize: 12.5))),
+        const SizedBox(height: 6),
+        const Text('الإعداد: ثبّت Stash على حاسوبك وأضف مجلد فيديوهاتك ← اربط ممثلاتك بـ StashDB داخله (Tagger) ← انسخ عنوانه (مثل 192.168.1.10:9999) والـ API Key من Settings ← Security.',
+          style: TextStyle(color: C.muted, fontSize: 11.5, height: 1.5)),
+      ]));
+  }
+}
+
+
+/// مواقع التضمين الرسمية: تفعيل كل موقع وحالته على شبكتك.
+class _EmbedCard extends ConsumerStatefulWidget {
+  const _EmbedCard();
+  @override ConsumerState<_EmbedCard> createState() => _EmbedCardState();
+}
+class _EmbedCardState extends ConsumerState<_EmbedCard> {
+  final _st = <String, bool?>{}; bool _busy = false;
+  Future<void> _check() async {
+    setState(() => _busy = true);
+    final repo = await ref.read(repoProvider.future);
+    final reach = Map<String, dynamic>.from(await repo.kvGet('embed_reach') as Map? ?? {});
+    for (final s in embedSources) { final ok = await embedReachable(s); _st[s.id] = ok; reach[s.id] = {'ok': ok, 't': DateTime.now().millisecondsSinceEpoch}; if (mounted) setState(() {}); }
+    await repo.kvSet('embed_reach', reach);
+    if (mounted) setState(() => _busy = false);
+  }
+  @override
+  Widget build(BuildContext context) {
+    final cfg = ref.watch(reelsCfgProvider).value ?? const ReelsCfg();
+    return Container(margin: const EdgeInsets.only(bottom: S.s3), padding: const EdgeInsets.all(S.s3),
+      decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(S.rLg), border: Border.all(color: C.line)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('مواقع التضمين الرسمية', style: TextStyle(color: C.gold2, fontWeight: FontWeight.w700, fontSize: 15)),
+        const Text('فيديوهات كاملة لممثلاتك عبر واجهات المواقع الرسمية ومشغّل التضمين الذي تسمح به (بلا تنزيل). كل مقطع موسوم بمصدره. المطابقة بالاسم الكامل فقط.', style: TextStyle(color: C.muted, fontSize: 12.5, height: 1.5)),
+        for (final s in embedSources) SwitchListTile(contentPadding: EdgeInsets.zero, dense: true, value: cfg.emb.contains(s.id),
+          onChanged: (v) => ref.read(reelsCfgProvider.notifier).set(cfg.copy(emb: v ? [...cfg.emb, s.id] : cfg.emb.where((x) => x != s.id).toList())),
+          title: Text(s.name), subtitle: Text(_st[s.id] == null ? '' : _st[s.id]! ? 'متاح على شبكتك ✓' : 'محجوب على شبكتك — يعمل مع VPN', style: TextStyle(color: _st[s.id] == true ? C.ok : C.gold, fontSize: 12))),
+        TextButton.icon(onPressed: _busy ? null : _check, icon: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.network_check_rounded), label: const Text('فحص الوصول')),
+      ]));
   }
 }

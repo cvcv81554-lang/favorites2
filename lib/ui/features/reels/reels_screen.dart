@@ -7,7 +7,10 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../data/clip_prefetch.dart' show ReelsCfg;
+import '../../../data/embed_sources.dart';
 import '../../../data/keys.dart';
+import '../../../data/stash_server.dart';
 import '../../../data/platform/clip_cache.dart';
 import '../../../data/privacy.dart' show blurPhotos;
 import '../../../data/sources.dart';
@@ -18,6 +21,8 @@ import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../works/works_screen.dart' show worksProvider, workTasteProvider, showWorkSheet;
+import 'embed_reel.dart';
+import 'full_video_screen.dart';
 import 'reel_center.dart';
 
 /// إشارات «مقاطع» (محفوظة على الجهاز فقط).
@@ -68,12 +73,24 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
   @override void dispose() { _pc.dispose(); super.dispose(); }
 
   Set<String> _cached = {};
+  List<WorkGroup> _server = [], _embeds = [];
 
   void _build() {
     final sig = ref.read(reelSigProvider).value ?? const ReelSignals({}, {});
     bool cached(String u) => _cached.contains(clipKeyOf(u));
-    _feed = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed, n: 200,
+    final trailers = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed, n: 200,
       playable: (u) => (hostUsable(_hosts, u) || cached(u)) && qualityOk(_quality, u, hqOnly: _hqOnly), isCached: cached);
+    // خادم Stash الخاص بك: مقاطع قصيرة (45 ثانية من داخل كل فيديو) وبينها فيديوهات كاملة — مرتبة بنفس الخوارزمية
+    final server = <Reel>[];
+    var k = 0;
+    for (final r in rankReels(_server, ref.read(workTasteProvider), sig, favsOnly: false, seed: _seed, n: 200)) {
+      final seg = shortSegment(r.g.key, r.g.du * 60);
+      server.add(seg.$2 > 0 ? r.variant(start: seg.$1, len: seg.$2, src: 'Stash · مقطع قصير') : r.variant(full: true, src: 'Stash · فيديو كامل'));
+      if (seg.$2 > 0 && ++k % 4 == 0) server.add(r.variant(full: true, src: 'Stash · فيديو كامل'));
+    }
+    // مواقع التضمين الرسمية: فيديوهات كاملة موسومة بمصدرها
+    final embeds = [for (final r in rankReels(_embeds, ref.read(workTasteProvider), sig, favsOnly: false, seed: _seed, n: 200)) r.variant(full: true, src: '${embedSourceName(r.g.key)} · فيديو كامل')];
+    _feed = weave(weave(trailers, server), embeds, bPerA: 1);
     _hidden = _scope().where((g) => !hostUsable(_hosts, g.tr) && !cached(g.tr)).length;
     _cur = 0;
     for (final r in _feed!) { if (sig.clips[r.key]?['l'] == 1) _liked.add(r.key); }
@@ -90,6 +107,8 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     final repo = await ref.read(repoProvider.future);
     _hosts = await loadHosts(repo);
     _quality = Map<String, dynamic>.from(await repo.kvGet('reel_quality') as Map? ?? {});
+    _server = await _loadServer(cfg);
+    _embeds = await _loadEmbeds(cfg);
     _cached = (await clipCacheStats()).$1;
     final todo = _scope().map((g) => g.tr);
     if (mounted) setState(() { _preparing = true; _msg = 'فحص خوادم المقاطع على شبكتك…'; });
@@ -99,6 +118,63 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     setState(() { _preparing = false; _msg = ''; _build(); });
     _prefetch(0); _prefetch(1);
     _autoUpdate();
+  }
+
+  /// مقاطع خادم Stash الخاص بك (إن ضُبط ومُفعّل): ربط ممثلاتك بخادمك (بمعرّف StashDB أو الاسم) مع ذاكرة، ثم جلب مقاطعهن.
+  Future<List<WorkGroup>> _loadServer(ReelsCfg cfg) async {
+    if (!cfg.server || !await StashServer.configured()) return const [];
+    try {
+      if (mounted) setState(() => _msg = 'الاتصال بخادم Stash…');
+      final repo = await ref.read(repoProvider.future);
+      final map = Map<String, dynamic>.from(await repo.kvGet('stash_local_map') as Map? ?? {});
+      final lib = ref.read(libraryProvider).value ?? const <Performer>[];
+      final want = lib.where((p) => !p.isMinor && (!_favsOnly || p.fav || p.rating >= 4)).toList();
+      var asked = 0;
+      for (final p in want) {
+        if (map.containsKey(p.id) || asked >= 60) continue;   // 60 ربطًا جديدًا كحد في كل فتح
+        asked++; map[p.id] = await StashServer.localPerformer(p) ?? '';
+      }
+      await repo.kvSet('stash_local_map', map);
+      final byLocal = {for (final p in want) if ('${map[p.id] ?? ''}'.isNotEmpty) '${map[p.id]}': p};
+      return await StashServer.scenes(byLocal);
+    } on SourceError catch (e) { if (mounted) setState(() => _msg = e.msg); return const []; }
+    catch (_) { return const []; }
+  }
+
+  /// مواقع التضمين الرسمية المفعّلة: فحص الوصول (كل 6 ساعات)، ثم نتائج كل ممثلة من الذاكرة (تُجدَّد كل 3 أيام، 20 ممثلة جديدة لكل موقع في كل فتح).
+  Future<List<WorkGroup>> _loadEmbeds(ReelsCfg cfg) async {
+    if (cfg.emb.isEmpty) return const [];
+    final repo = await ref.read(repoProvider.future);
+    final reach = Map<String, dynamic>.from(await repo.kvGet('embed_reach') as Map? ?? {});
+    final cache = Map<String, dynamic>.from(await repo.kvGet('embed_cache') as Map? ?? {});
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final lib = (ref.read(libraryProvider).value ?? const <Performer>[]).where((p) => !p.isMinor && (!_favsOnly || p.fav || p.rating >= 4)).toList();
+    final out = <WorkGroup>[]; var blocked = 0;
+    for (final s in embedSources.where((s) => cfg.emb.contains(s.id))) {
+      final st = reach[s.id] as Map?;
+      if (st == null || now - ((st['t'] as num?) ?? 0) > 6 * 3600000) {
+        if (mounted) setState(() => _msg = 'فحص ${s.name}…');
+        reach[s.id] = {'ok': await embedReachable(s), 't': now};
+      }
+      if ((reach[s.id] as Map)['ok'] != true) { blocked++; continue; }
+      var fetched = 0;
+      for (final p in lib) {
+        final k = '${s.id}:${p.id}'; final c = cache[k] as Map?;
+        if ((c == null || now - ((c['at'] as num?) ?? 0) > 3 * 86400000) && fetched < 20) {
+          fetched++; if (mounted) setState(() => _msg = '${s.name}: ${p.name}…');
+          final l = await searchEmbeds(s, p);
+          cache[k] = {'at': now, 'v': [for (final g in l.take(15)) {'k': g.key, 't': g.t, 'p': g.p, 'tr': g.tr, 'du': g.du}]};
+        }
+        for (final v in ((cache[k] as Map?)?['v'] as List? ?? const [])) {
+          if (v is! Map) continue;
+          final g = WorkGroup('${v['k']}')..t = '${v['t']}'..p = '${v['p']}'..tr = '${v['tr']}'..du = (v['du'] as num?)?.toInt() ?? 0;
+          g.who.add(p); out.add(g);
+        }
+      }
+    }
+    await repo.kvSet('embed_reach', reach); await repo.kvSet('embed_cache', cache);
+    if (blocked > 0 && blocked == cfg.emb.length && mounted) _msg = 'مواقع التضمين محجوبة على شبكتك (تعمل مع VPN)';
+    return out;
   }
 
   /// تحديث تلقائي: إن مضى 3 أيام على آخر جلب ⇒ جلب الإعلانات الجديدة بهدوء في الخلفية.
@@ -190,6 +266,8 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       else PageView.builder(controller: _pc, scrollDirection: Axis.vertical, itemCount: feed.length,
         onPageChanged: (i) { setState(() => _cur = i); _prefetch(i + 1); },
         itemBuilder: (c, i) => (i - _cur).abs() > 1 ? const ColoredBox(color: Colors.black)   // لا يُحمَّل إلا الحالي والمجاوران
+          : feed[i].g.key.startsWith('emb:') ? EmbedReel(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, liked: _liked.contains(feed[i].key),
+              onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onProfile: () => context.push('/p/${feed[i].g.who.first.id}'))
           : feed[i].photo ? _PhotoReel(key: ValueKey('ph${feed[i].key}'), reel: feed[i], active: i == _cur, onMenu: () => _menu(feed[i]))
           : _ReelPage(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, muted: _muted, liked: _liked.contains(feed[i].key),
               onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onMute: _toggleSound,
@@ -249,7 +327,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
       final ok = await _open(VideoPlayerController.networkUrl(Uri.parse(url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false)));
       if (ok) return;
     }
-    if (clipCacheSupported) {
+    if (clipCacheSupported && !widget.reel.g.key.startsWith('stash:')) {
       if (mounted) setState(() { _err = false; _dl = 0; });
       final path = await downloadClip(url, onProgress: (p) { if (mounted) setState(() => _dl = p); });
       if (!mounted) return;
@@ -280,6 +358,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
       if (!mounted) { await c.dispose(); return false; }
       _c?.removeListener(_tick); final old = _c; _c = c; await old?.dispose();
       c.setLooping(true); c.setVolume(widget.muted ? 0 : 1); c.addListener(_tick);
+      if (widget.reel.start > 0) { await c.seekTo(Duration(seconds: widget.reel.start)); _maxPos = Duration(seconds: widget.reel.start); _last = _maxPos; }
       if (widget.active && !_paused) c.play();
       setState(() { _err = false; });
       _measure(c);
@@ -288,12 +367,18 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
   }
 
   void _tick() {
-    final v = _c!.value; if (!v.isInitialized) return;
+    final c = _c!; final v = c.value; if (!v.isInitialized) return;
+    final r = widget.reel;
+    if (r.len > 0 && v.position >= Duration(seconds: r.start + r.len)) { _loops++; _last = Duration(seconds: r.start); c.seekTo(Duration(seconds: r.start)); return; }   // مقطع قصير يتكرر
     if (v.position < _last - const Duration(seconds: 1)) _loops++;   // رجع للبداية ⇒ إعادة
     _last = v.position; if (v.position > _maxPos) _maxPos = v.position;
   }
 
-  double get _frac { final d = _c?.value.duration ?? Duration.zero; if (d.inMilliseconds <= 0) return 0; return _loops + _maxPos.inMilliseconds / d.inMilliseconds; }
+  double get _frac {
+    final r = widget.reel;
+    if (r.len > 0) return _loops + ((_maxPos.inMilliseconds - r.start * 1000) / (r.len * 1000)).clamp(0.0, 1.0);
+    final d = _c?.value.duration ?? Duration.zero; if (d.inMilliseconds <= 0) return 0; return _loops + _maxPos.inMilliseconds / d.inMilliseconds;
+  }
 
   @override
   void didUpdateWidget(covariant _ReelPage o) {
@@ -341,12 +426,14 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
               Text([if (g.s.isNotEmpty) g.s, if (g.y.isNotEmpty) g.y].join(' · '), style: const TextStyle(color: Colors.white60, fontSize: 12)),
               const SizedBox(height: 4),
               Text(r.why, style: TextStyle(color: r.explore ? C.rose : C.gold2, fontSize: 12)),
+              Text(r.src, style: const TextStyle(color: Colors.white54, fontSize: 11)),
             ])),
             const SizedBox(width: S.s3),
             Column(mainAxisSize: MainAxisSize.min, children: [
               _side(widget.liked ? Icons.favorite_rounded : Icons.favorite_border_rounded, 'إعجاب', widget.liked ? C.rose : Colors.white, widget.onLike),
               _side(Icons.person_rounded, 'ملفها', Colors.white, () => context.push('/p/${g.who.first.id}')),
-              _side(Icons.movie_rounded, 'العمل', Colors.white, () => showWorkSheet(context, ref, g.key)),
+              if (r.len > 0) _side(Icons.smart_display_rounded, 'كاملًا', C.gold2, () { c?.pause(); Navigator.of(context).push(MaterialPageRoute(builder: (_) => FullVideoScreen(url: r.url, title: g.t, start: r.start, source: r.src.split(' · ').first))); })
+              else if (!g.key.startsWith('stash:')) _side(Icons.movie_rounded, 'العمل', Colors.white, () => showWorkSheet(context, ref, g.key)),
               _side(widget.muted ? Icons.volume_off_rounded : Icons.volume_up_rounded, widget.muted ? 'صامت' : 'صوت', Colors.white, widget.onMute),
             ]),
           ])))),
