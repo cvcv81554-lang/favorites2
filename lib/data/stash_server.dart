@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import '../domain/age_gate.dart';
 import '../domain/performer.dart';
 import '../domain/sanitize.dart';
 import '../domain/works.dart';
@@ -96,31 +97,90 @@ class StashServer {
   static Future<List<WorkGroup>> scenes(Map<String, Performer> byLocal, {int page = 1}) async {
     if (byLocal.isEmpty) return const [];
     final c = await cfg();
-    final d = await q(r'query($ids:[ID!],$p:Int!){findScenes(scene_filter:{performers:{value:$ids,modifier:INCLUDES}},filter:{per_page:100,page:$p,sort:"random"}){count scenes{id title date play_count resume_time files{duration width height} paths{stream preview screenshot vtt sprite} scene_markers{id title seconds end_seconds primary_tag{name}} performers{id name} studio{name}}}}',
+    final d = await q('query(\$ids:[ID!],\$p:Int!){findScenes(scene_filter:{performers:{value:\$ids,modifier:INCLUDES}},filter:{per_page:100,page:\$p,sort:"random"}){count scenes{$sceneFields}}}',
       {'ids': byLocal.keys.toList(), 'p': page});
     final out = <WorkGroup>[];
     for (final s in ((d['findScenes'] as Map?)?['scenes'] as List?) ?? const []) {
-      if (s is! Map) continue;
-      final paths = (s['paths'] as Map?) ?? const {};
-      final stream = '${paths['stream'] ?? ''}'; if (stream.isEmpty) continue;
-      final who = [for (final pp in (s['performers'] as List? ?? const [])) if (pp is Map && byLocal['${pp['id']}'] != null) byLocal['${pp['id']}']!];
-      if (who.isEmpty || who.any((p) => p.isMinor)) continue;                     // بوابة +18 على ممثلات المكتبة
-      final f = ((s['files'] as List?) ?? const []).whereType<Map>().firstOrNull;
-      final g = WorkGroup('stash:${s['id']}')
-        ..t = '${s['title'] ?? ''}'.trim().isEmpty ? 'مقطع من خادمك' : '${s['title']}'
-        ..s = '${(s['studio'] as Map?)?['name'] ?? ''}'
-        ..d = '${s['date'] ?? ''}'
-        ..y = '${s['date'] ?? ''}'.length >= 4 ? '${s['date']}'.substring(0, 4) : ''
-        ..p = withKey('${paths['screenshot'] ?? ''}', c.$2)
-        ..tr = withKey(stream, c.$2)
-        ..du = (((f?['duration'] as num?) ?? 0) / 60).round();
-      g.who.addAll(who);
-      extra[g.key] = StashExtra('${s['id']}', vtt: withKey('${paths['vtt'] ?? ''}', c.$2), resume: ((s['resume_time'] as num?) ?? 0).toDouble(), plays: ((s['play_count'] as num?) ?? 0).toInt(),
-        markers: [for (final m in (s['scene_markers'] as List? ?? const [])) if (m is Map && m['seconds'] is num)
-          StashMarker((m['seconds'] as num).toDouble(), (m['end_seconds'] as num?)?.toDouble(), '${m['title'] ?? ''}'.trim().isNotEmpty ? '${m['title']}' : '${(m['primary_tag'] as Map?)?['name'] ?? ''}')]);
-      out.add(g);
+      final g = s is Map ? parseScene(s, c.$2, byLocal, libraryOnly: true) : null;
+      if (g != null) out.add(g);
     }
     return out;
+  }
+
+  /// حقول المشهد المطلوبة (متحقق منها ضد المخطط الرسمي).
+  static const sceneFields = 'id title date play_count resume_time files{duration width height format video_codec} paths{stream preview screenshot vtt sprite} scene_markers{id title seconds end_seconds primary_tag{name}} performers{id name birthdate} studio{name}';
+
+  /// مشهد ⇒ «عمل» للخلاصة/المكتبة. بوابة +18 قبل أي شيء: أي ممثلة في المشهد تاريخها يقول أقل من 18 (أو غير صالح) ⇒ يُستبعد المشهد كله.
+  /// [libraryOnly]: ممثلات مكتبتك فقط (الخلاصة)؛ وإلا كل ممثلات المشهد (مكتبة Stash).
+  static WorkGroup? parseScene(Map s, String key, Map<String, Performer> byLocal, {bool libraryOnly = false}) {
+    final paths = (s['paths'] as Map?) ?? const {};
+    final stream = '${paths['stream'] ?? ''}'; if (stream.isEmpty) return null;
+    final ps = (s['performers'] as List? ?? const []).whereType<Map>().toList();
+    if (ps.any((pp) => !adultOk({'birthRaw': pp['birthdate'] ?? ''}))) return null;       // بوابة +18 على تواريخ الخادم
+    final who = <Performer>[
+      for (final pp in ps)
+        if (byLocal['${pp['id']}'] != null) byLocal['${pp['id']}']!
+        else if (!libraryOnly) Performer({'id': 'stashp:${pp['id']}', 'name': '${pp['name'] ?? ''}', if ('${pp['birthdate'] ?? ''}'.isNotEmpty) 'birth': '${pp['birthdate']}'}),
+    ];
+    if ((libraryOnly && who.isEmpty) || who.any((p) => p.isMinor)) return null;   // بوابة +18 على ممثلات المكتبة
+    final f = ((s['files'] as List?) ?? const []).whereType<Map>().firstOrNull;
+    final g = WorkGroup('stash:${s['id']}')
+      ..t = '${s['title'] ?? ''}'.trim().isEmpty ? 'مقطع من خادمك' : '${s['title']}'
+      ..s = '${(s['studio'] as Map?)?['name'] ?? ''}'
+      ..d = '${s['date'] ?? ''}'
+      ..y = '${s['date'] ?? ''}'.length >= 4 ? '${s['date']}'.substring(0, 4) : ''
+      ..p = withKey('${paths['screenshot'] ?? ''}', key)
+      ..tr = withKey(stream, key)
+      ..du = (((f?['duration'] as num?) ?? 0) / 60).round();
+    g.who.addAll(who);
+    final fmt = '${f?['format'] ?? ''}'.toLowerCase(), vc = '${f?['video_codec'] ?? ''}'.toLowerCase();
+    extra[g.key] = StashExtra('${s['id']}', vtt: withKey('${paths['vtt'] ?? ''}', key), resume: ((s['resume_time'] as num?) ?? 0).toDouble(), plays: ((s['play_count'] as num?) ?? 0).toInt(),
+      direct: f == null || (iosContainers.contains(fmt) && iosCodecs.contains(vc)), height: ((f?['height'] as num?) ?? 0).toInt(),
+      markers: [for (final m in (s['scene_markers'] as List? ?? const [])) if (m is Map && m['seconds'] is num)
+        StashMarker((m['seconds'] as num).toDouble(), (m['end_seconds'] as num?)?.toDouble(), '${m['title'] ?? ''}'.trim().isNotEmpty ? '${m['title']}' : '${(m['primary_tag'] as Map?)?['name'] ?? ''}')]);
+    return g;
+  }
+
+  /// صيغ يشغّلها الآيفون مباشرة؛ غيرها (mkv/wmv/avi، أو ترميز غير مدعوم) ⇒ بث متكيّف (HLS) يحوّله الخادم.
+  static const iosContainers = {'mp4', 'mov', 'm4v'}, iosCodecs = {'h264', 'hevc', 'h265'};
+
+  /// روابط البث البديلة من الخادم (sceneStreams) ⇒ رابط HLS إن وُجد.
+  static Future<String?> hls(String id) async {
+    try {
+      final c = await cfg();
+      final d = await q(r'query($id:ID){sceneStreams(id:$id){url mime_type label}}', {'id': id});
+      final l = (d['sceneStreams'] as List? ?? const []).whereType<Map>().toList();
+      final h = l.where((e) => '${e['mime_type'] ?? ''}'.contains('mpegurl') || '${e['label'] ?? ''}'.toUpperCase().contains('HLS')).firstOrNull;
+      return h == null ? null : withKey('${h['url']}', c.$2);
+    } catch (_) { return null; }
+  }
+
+  /// مكتبة Stash كاملة: بحث وترتيب وتصفية وصفحات. [mine]: معرّفات ممثلاتك في الخادم (لتصفية «ممثلاتي فقط»).
+  /// [mode]: '' الكل، 'resume' تابع المشاهدة.
+  static Future<(List<WorkGroup>, int)> browse({String query = '', String sort = 'random', bool desc = true, int page = 1, int perPage = 40,
+      String? performer, List<String>? mine, String mode = '', Map<String, Performer> byLocal = const {}}) async {
+    final c = await cfg();
+    final ids = performer != null ? [performer] : mine;
+    final filter = <String>[
+      if (ids != null && ids.isNotEmpty) 'performers:{value:\$ids,modifier:INCLUDES}',
+      if (mode == 'resume') 'resume_time:{value:10,modifier:GREATER_THAN}',
+    ].join(',');
+    final d = await q('query(\$q:String,\$p:Int!,\$n:Int!,\$s:String,\$dir:SortDirectionEnum${ids != null && ids.isNotEmpty ? ',\$ids:[ID!]' : ''}){findScenes(scene_filter:{$filter},filter:{q:\$q,page:\$p,per_page:\$n,sort:\$s,direction:\$dir}){count scenes{$sceneFields}}}',
+      {'q': query, 'p': page, 'n': perPage, 's': sort, 'dir': desc ? 'DESC' : 'ASC', if (ids != null && ids.isNotEmpty) 'ids': ids});
+    final r = (d['findScenes'] as Map?) ?? const {};
+    final out = [for (final s in (r['scenes'] as List? ?? const [])) if (s is Map) ?parseScene(s, c.$2, byLocal)];
+    return (out, ((r['count'] as num?) ?? 0).toInt());
+  }
+
+  /// ممثلات الخادم (بوابة +18 على تواريخهن): (المعرّف، الاسم، الصورة، عدد المقاطع، المفضلة).
+  static Future<(List<({String id, String name, String image, int scenes, bool fav})>, int)> performers({String query = '', int page = 1, int perPage = 60}) async {
+    final c = await cfg();
+    final d = await q(r'query($q:String,$p:Int!,$n:Int!){findPerformers(performer_filter:{scene_count:{value:0,modifier:GREATER_THAN}},filter:{q:$q,page:$p,per_page:$n,sort:"scenes_count",direction:DESC}){count performers{id name birthdate image_path scene_count favorite}}}',
+      {'q': query, 'p': page, 'n': perPage});
+    final r = (d['findPerformers'] as Map?) ?? const {};
+    return ([for (final x in (r['performers'] as List? ?? const [])) if (x is Map && adultOk({'birthRaw': x['birthdate'] ?? ''}))
+      (id: '${x['id']}', name: '${x['name'] ?? ''}', image: withKey('${x['image_path'] ?? ''}', c.$2), scenes: ((x['scene_count'] as num?) ?? 0).toInt(), fav: x['favorite'] == true)],
+      ((r['count'] as num?) ?? 0).toInt());
   }
 }
 
@@ -140,8 +200,11 @@ class StashMarker {
 }
 
 class StashExtra {
-  final String id, vtt; final double resume; final int plays; final List<StashMarker> markers;
-  const StashExtra(this.id, {this.vtt = '', this.resume = 0, this.plays = 0, this.markers = const []});
+  final String id, vtt; final double resume; final int plays, height; final List<StashMarker> markers;
+  /// [direct]: الملف يعمل على الآيفون مباشرة (mp4/mov بترميز H.264/HEVC)؛ وإلا بث HLS من الخادم.
+  final bool direct;
+  const StashExtra(this.id, {this.vtt = '', this.resume = 0, this.plays = 0, this.markers = const [], this.direct = true, this.height = 0});
+  StashExtra withResume(double r) => StashExtra(id, vtt: vtt, resume: r, plays: plays, markers: markers, direct: direct, height: height);
 }
 
 /// مقاطع قصيرة من العلامات بدل البداية العشوائية: (البداية، الطول، الوسم) — الطول من نهاية العلامة أو 30 ثانية، بين 8 و90، بلا تداخل، 3 كحد.

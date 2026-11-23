@@ -18,9 +18,8 @@ class FullVideoScreen extends StatefulWidget {
 }
 
 class _FullVideoState extends State<FullVideoScreen> {
-  late final VideoPlayerController _c = widget.file != null ? VideoPlayerController.file(widget.file as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false))
-    : VideoPlayerController.networkUrl(Uri.parse(widget.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false));
-  bool _ui = true, _err = false;
+  VideoPlayerController _c = VideoPlayerController.networkUrl(Uri.parse('about:blank'));
+  bool _ui = true, _err = false, _triedHls = false;
   List<VttCue> _cues = const [];
   double? _scrub;   // موضع السحب الحالي (ثوانٍ) أثناء التقديم
   final _watch = Stopwatch();
@@ -29,13 +28,40 @@ class _FullVideoState extends State<FullVideoScreen> {
   void initState() {
     super.initState();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
-    _c.initialize().then((_) async { if (widget.start > 0) await _c.seekTo(Duration(seconds: widget.start)); await _c.setVolume(1); await _c.play(); if (mounted) setState(() {}); })
-      .catchError((Object _) { if (mounted) setState(() => _err = true); });
-    _c.addListener(() {
-      if (_c.value.isPlaying) { if (!_watch.isRunning) _watch.start(); } else if (_watch.isRunning) { _watch.stop(); }
-      if (mounted) setState(() {});
-    });
+    final ex = widget.stashId.isEmpty ? null : StashServer.extra.values.where((e) => e.id == widget.stashId).firstOrNull;
+    if (widget.file == null && ex != null && !ex.direct) { _useHls(); } else { _open(widget.file != null ? VideoPlayerController.file(widget.file as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false))
+      : VideoPlayerController.networkUrl(Uri.parse(widget.url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false))); }
     if (widget.vtt.isNotEmpty) StashServer.thumbs(widget.vtt).then((c) { if (mounted) setState(() => _cues = c); });
+  }
+
+  /// صيغة لا يشغّلها الآيفون (mkv/wmv…) أو فشل التشغيل المباشر ⇒ بث متكيّف (HLS) يحوّله خادم Stash.
+  Future<void> _useHls() async {
+    _triedHls = true;
+    final u = await StashServer.hls(widget.stashId);
+    if (!mounted) return;
+    if (u == null) { setState(() => _err = true); return; }
+    _open(VideoPlayerController.networkUrl(Uri.parse(u), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false)));
+  }
+
+  void _listen() {
+    if (_c.value.isPlaying) { if (!_watch.isRunning) _watch.start(); } else if (_watch.isRunning) { _watch.stop(); }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _open(VideoPlayerController c) async {
+    final old = _c; old.removeListener(_listen);
+    setState(() { _c = c; _err = false; });
+    old.dispose();
+    try {
+      await c.initialize();
+      if (!mounted) return;
+      c.addListener(_listen);
+      if (widget.start > 0) await c.seekTo(Duration(seconds: widget.start));
+      await c.setVolume(1); await c.play(); if (mounted) setState(() {});
+    } catch (_) {
+      if (!mounted) return;
+      if (widget.stashId.isNotEmpty && !_triedHls) { _useHls(); } else { setState(() => _err = true); }
+    }
   }
 
   @override
@@ -50,7 +76,7 @@ class _FullVideoState extends State<FullVideoScreen> {
     }
     widget.onClosed?.call(resume);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    _c.dispose(); super.dispose();
+    _c.removeListener(_listen); _c.dispose(); super.dispose();
   }
 
   String _t(Duration d) { final s = d.inSeconds; final h = s ~/ 3600, m = (s % 3600) ~/ 60, x = s % 60; return h > 0 ? '$h:${'$m'.padLeft(2, '0')}:${'$x'.padLeft(2, '0')}' : '$m:${'$x'.padLeft(2, '0')}'; }

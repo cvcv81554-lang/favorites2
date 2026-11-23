@@ -403,7 +403,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
           onTap: () {
             Navigator.pop(c);
             Navigator.of(context).push(MaterialPageRoute(builder: (_) => FullVideoScreen(url: g.tr, title: g.t, start: ex.resume.round(), source: 'Stash', stashId: ex.id, vtt: ex.vtt,
-              onClosed: (x) => StashServer.extra[g.key] = StashExtra(ex.id, vtt: ex.vtt, resume: x, plays: ex.plays, markers: ex.markers))));
+              onClosed: (x) => StashServer.extra[g.key] = ex.withResume(x))));
           });
       }(),
     ]))));
@@ -453,6 +453,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
           onSelected: (v) async {
             switch (v) {
               case 'r': _continueWatching();
+              case 'lib': context.push('/stash');
               case 'h': _openLibrary(0);
               case 's': _openLibrary(1);
               case 'l': _openLibrary(2);
@@ -464,6 +465,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
           },
           itemBuilder: (_) => [
             const PopupMenuItem(value: 'r', child: ListTile(leading: Icon(Icons.play_circle_outline_rounded), title: Text('تابع المشاهدة'))),
+            const PopupMenuItem(value: 'lib', child: ListTile(leading: Icon(Icons.video_library_rounded), title: Text('مكتبة Stash'))),
             const PopupMenuItem(value: 'h', child: ListTile(leading: Icon(Icons.history_rounded), title: Text('سجلّي'))),
             const PopupMenuItem(value: 's', child: ListTile(leading: Icon(Icons.bookmark_rounded), title: Text('المحفوظة'))),
             const PopupMenuItem(value: 'l', child: ListTile(leading: Icon(Icons.favorite_rounded), title: Text('أعجبتني'))),
@@ -548,10 +550,14 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final url = widget.reel.url;
     final saved = await cachedClipPath(url);
     if (saved != null) { if (await _open(_fileController(saved))) { _savedPath = saved; return; } }
+    // خادمك: صيغة لا يشغّلها الآيفون ⇒ HLS أولًا؛ وإن فشل المباشر ⇒ HLS
+    final ex = StashServer.extra[widget.reel.g.key];
+    if (ex != null && !ex.direct) { final h = await StashServer.hls(ex.id); if (h != null && await _open(VideoPlayerController.networkUrl(Uri.parse(h), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false)))) return; }
     if (!widget.preferDownload) {
       final ok = await _open(VideoPlayerController.networkUrl(Uri.parse(url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false)));
       if (ok) return;
     }
+    if (ex != null && ex.direct) { final h = await StashServer.hls(ex.id); if (h != null && await _open(VideoPlayerController.networkUrl(Uri.parse(h), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false)))) return; }
     if (clipCacheSupported && !widget.reel.g.key.startsWith('stash:')) {
       if (mounted) setState(() { _err = false; _dl = 0; });
       final path = await downloadClip(url, onProgress: (p) { if (mounted) setState(() => _dl = p); });
@@ -640,7 +646,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final f = _savedPath == null ? null : fileVideoSource(_savedPath!);
     final ex = StashServer.extra[r.g.key];
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => FullVideoScreen(url: r.url, title: r.g.t, start: at, source: r.src.split(' · ').first, file: f, stashId: ex?.id ?? '', vtt: ex?.vtt ?? '',
-      onClosed: ex == null ? null : (x) => StashServer.extra[r.g.key] = StashExtra(ex.id, vtt: ex.vtt, resume: x, plays: ex.plays, markers: ex.markers))));
+      onClosed: ex == null ? null : (x) => StashServer.extra[r.g.key] = ex.withResume(x))));
   }
 
   String _t(Duration d) => '${d.inMinutes}:${'${d.inSeconds % 60}'.padLeft(2, '0')}';
