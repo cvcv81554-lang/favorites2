@@ -173,3 +173,15 @@ List<Performer> applyToGroup(WorkGroup g, void Function(Map<String, dynamic> w) 
   }
   return out;
 }
+
+
+/// «الأعمال الناقصة»: أعمالها في المصادر الرسمية (بعد الدمج) التي لا تملكها في خادمك.
+/// القادمة (تاريخ مستقبلي) لا تُعد ناقصة. المطابقة: معرّف مشترك، وإلا العنوان + الاستوديو + التاريخ (sameWork).
+({List<Map<String, dynamic>> missing, int have, int total}) missingWorks(List<Map<String, dynamic>> works, List<Map<String, dynamic>> owned, {DateTime? now}) {
+  final today = (now ?? DateTime.now()).toIso8601String().substring(0, 10);
+  final released = works.where((w) { final d = '${w['d'] ?? ''}'; return d.isEmpty || d.compareTo(today) <= 0; }).toList();
+  final missing = <Map<String, dynamic>>[];
+  for (final w in released) { if (!owned.any((o) => sameWork(w, o))) missing.add(w); }
+  missing.sort((a, b) => '${b['d'] ?? ''}'.compareTo('${a['d'] ?? ''}'));
+  return (missing: missing, have: released.length - missing.length, total: released.length);
+}

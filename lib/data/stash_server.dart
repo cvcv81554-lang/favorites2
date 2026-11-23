@@ -141,6 +141,26 @@ class StashServer {
     return g;
   }
 
+  /// ما تملكه في خادمك لكل ممثلة (بمعرّفها في الخادم): مشاهد بصيغة «عمل» للمقارنة (العنوان، الاستوديو، التاريخ، معرّفا StashDB/ThePornDB).
+  static Future<Map<String, List<Map<String, dynamic>>>> owned(List<String> localIds) async {
+    final out = {for (final id in localIds) id: <Map<String, dynamic>>[]};
+    if (localIds.isEmpty) return out;
+    final d = await q(r'query($ids:[ID!]){findScenes(scene_filter:{performers:{value:$ids,modifier:INCLUDES}},filter:{per_page:-1}){scenes{id title date studio{name} stash_ids{endpoint stash_id} performers{id}}}}', {'ids': localIds});
+    for (final s in ((d['findScenes'] as Map?)?['scenes'] as List?) ?? const []) {
+      if (s is! Map) continue;
+      final w = sceneAsWork(s);
+      for (final pp in (s['performers'] as List? ?? const [])) { if (pp is Map) out['${pp['id']}']?.add(w); }
+    }
+    return out;
+  }
+
+  /// مشهد الخادم ⇒ صيغة عمل: معرّف StashDB (is) وThePornDB (ip) من stash_ids إن وُجدا.
+  static Map<String, dynamic> sceneAsWork(Map s) {
+    String idFor(String host) => '${(s['stash_ids'] as List? ?? const []).whereType<Map>().where((x) => '${x['endpoint'] ?? ''}'.contains(host)).firstOrNull?['stash_id'] ?? ''}';
+    final iS = idFor('stashdb.org'), iP = idFor('theporndb');
+    return {'t': '${s['title'] ?? ''}', 's': '${(s['studio'] as Map?)?['name'] ?? ''}', 'd': '${s['date'] ?? ''}', 'sid': '${s['id']}', if (iS.isNotEmpty) 'is': iS, if (iP.isNotEmpty) 'ip': iP};
+  }
+
   /// صيغ يشغّلها الآيفون مباشرة؛ غيرها (mkv/wmv/avi، أو ترميز غير مدعوم) ⇒ بث متكيّف (HLS) يحوّله الخادم.
   static const iosContainers = {'mp4', 'mov', 'm4v'}, iosCodecs = {'h264', 'hevc', 'h265'};
 

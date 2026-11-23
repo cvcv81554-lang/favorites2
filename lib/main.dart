@@ -21,6 +21,7 @@ import 'ui/features/privacy/lock_gate.dart';
 import 'ui/features/reels/network_screen.dart';
 import 'ui/features/reels/reels_screen.dart';
 import 'ui/features/sources/source_search.dart';
+import 'ui/features/stash/missing_screen.dart';
 import 'ui/features/stash/stash_library_screen.dart';
 import 'ui/features/stats/stats_screen.dart';
 import 'ui/features/studio/studio_screen.dart';
@@ -61,6 +62,7 @@ final _router = GoRouter(
     GoRoute(path: '/reels', builder: (_, _) => const ReelsScreen()),
     GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
     GoRoute(path: '/stash', builder: (_, _) => const StashLibraryScreen()),
+    GoRoute(path: '/missing', builder: (_, s) => MissingScreen(performerId: s.uri.queryParameters['p'])),
     GoRoute(path: '/taste-map', builder: (_, s) => TasteMapScreen(tab: int.tryParse(s.uri.queryParameters['tab'] ?? '') ?? 0)),
     GoRoute(path: '/c/:sid', builder: (_, s) => CandidateScreen(stashId: s.pathParameters['sid']!, why: (s.extra as List?)?.cast<String>() ?? const [])),
     GoRoute(path: '/search', builder: (_, s) => SourceSearchScreen(initial: s.uri.queryParameters['q'] ?? '', linkTo: s.uri.queryParameters['link'])),

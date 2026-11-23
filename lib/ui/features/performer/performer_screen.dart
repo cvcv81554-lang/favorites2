@@ -55,6 +55,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
             PopupMenuButton<String>(onSelected: (v) async {
               if (v == 'del') { _delete(p); return; }
               if (v == 'lists') { showListsSheet(context, ref, p); return; }
+              if (v == 'missing') { context.push('/missing?p=${p.id}'); return; }
               if (v == 'photos') {
                 final m = ScaffoldMessenger.of(context);
                 final n = await addPhotosFromGallery(ref, p);
@@ -72,6 +73,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               if (p.stashId.isNotEmpty || p.pdbId.isNotEmpty || RegExp(r'^\d{4}-\d{2}-\d{2}').hasMatch(p.birth)) const PopupMenuItem(value: 'sync', child: Text('تحديث من المصدرين (معلومات · أعمال · صور)')),
               const PopupMenuItem(value: 'photos', child: Text('إضافة صور من الجهاز')),
               const PopupMenuItem(value: 'lists', child: Text('القوائم')),
+              if (p.works.isNotEmpty) const PopupMenuItem(value: 'missing', child: Text('أعمالها الناقصة في خادمك')),
               PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
               const PopupMenuItem(value: 'del', child: Text('حذف')),
             ]),
