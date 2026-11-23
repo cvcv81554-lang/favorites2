@@ -44,7 +44,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     for (final p in lib) { final a = p.age; if (a == null) continue; final k = a < 25 ? '18–24' : a < 30 ? '25–29' : a < 35 ? '30–34' : a < 40 ? '35–39' : '40+'; ages[k] = ages[k]! + 1; }
     final rd = List<int>.filled(5, 0); for (final p in lib) { if (p.rating > 0) rd[(p.rating.ceil() - 1).clamp(0, 4)]++; }
 
-    return Scaffold(appBar: AppBar(title: const Text('الإحصائيات')), body: ListView(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, 80), children: [
+    return Scaffold(appBar: AppBar(title: const Text('الإحصائيات'), actions: [IconButton(tooltip: 'يومياتي', onPressed: () => context.push('/journal'), icon: const Icon(Icons.calendar_month_rounded))]), body: ListView(padding: const EdgeInsets.fromLTRB(S.s4, 0, S.s4, 80), children: [
       // ---------- ملخّص السنة ----------
       Container(
         padding: const EdgeInsets.all(S.s4),

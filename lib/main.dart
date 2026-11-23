@@ -23,6 +23,7 @@ import 'ui/features/reels/reels_screen.dart';
 import 'ui/features/sources/source_search.dart';
 import 'ui/features/stash/missing_screen.dart';
 import 'ui/features/stash/stash_library_screen.dart';
+import 'ui/features/stats/journal_screen.dart';
 import 'ui/features/stats/stats_screen.dart';
 import 'ui/features/studio/studio_screen.dart';
 import 'ui/features/sync/sync_screen.dart';
@@ -57,6 +58,7 @@ final _router = GoRouter(
     GoRoute(path: '/sync', builder: (_, _) => const SyncScreen()),
     GoRoute(path: '/tools', builder: (_, _) => const ToolsScreen()),
     GoRoute(path: '/stats', builder: (_, _) => const StatsScreen()),
+    GoRoute(path: '/journal', builder: (_, s) => JournalScreen(tab: int.tryParse(s.uri.queryParameters['tab'] ?? '') ?? 0)),
     GoRoute(path: '/find', builder: (_, _) => const FindScreen()),
     GoRoute(path: '/evening', builder: (_, _) => const EveningScreen()),
     GoRoute(path: '/reels', builder: (_, _) => const ReelsScreen()),

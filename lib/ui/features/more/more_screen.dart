@@ -115,6 +115,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _tile(Icons.lock_rounded, 'تصدير نسخة مشفّرة', 'AES-256 بكلمة مرور. مفاتيح API لا تُصدَّر أبدًا.', _busy || n == 0 ? null : () => _export(encrypted: true)),
       ]),
       _group('مكتبتي', [_tile(Icons.handyman_rounded, 'الأدوات', 'القوائم، المواجهة، المستويات، الأمنيات، الإنجازات، مزاج الليلة…', () => context.push('/tools')),
+        _tile(Icons.calendar_month_rounded, 'يومياتي', 'ملخص الشهر، الأهداف والمراحل، تقويم المشاهدة', () => context.push('/journal')),
         _tile(Icons.insights_rounded, 'الإحصائيات وملخّص السنة', 'أكثر من شاهدت، سلاسل المشاهدة، البلدان، الأعمار…', () => context.push('/stats')),
         _tile(Icons.tv_rounded, 'المزامنة مع الشاشة', 'أرسل مكتبتك إلى Android TV على نفس الشبكة', () => context.push('/sync'))]),
       _group('الإشعارات والتحديث في الخلفية', [const _BgSection()]),
