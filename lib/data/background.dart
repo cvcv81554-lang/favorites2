@@ -9,6 +9,7 @@ import 'package:workmanager/workmanager.dart';
 
 import '../domain/performer.dart';
 import '../domain/sanitize.dart';
+import 'clip_prefetch.dart' show clipsTaskId, runNightPrefetch;
 import 'keys.dart';
 import 'platform/db_factory.dart';
 import 'sources.dart';
@@ -168,6 +169,7 @@ Future<void> _notify(int works, int photos) async {
 void callbackDispatcher() {
   Workmanager().executeTask((task, input) async {
     WidgetsFlutterBinding.ensureInitialized();
+    if (task == clipsTaskId) { try { await runNightPrefetch(); return true; } catch (_) { return false; } }   // التحميل الليلي للمقاطع
     try {
       final raw = await bgRead('bg_input.json'); if (raw == null) return true;
       final inp = jsonDecode(raw) as Map<String, dynamic>;

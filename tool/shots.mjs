@@ -57,6 +57,7 @@ await shoot(phone, 'phone-11-find', '/find', async p => { await p.keyboard.type(
 await shoot(phone, 'phone-12-evening', '/evening');
 await shoot(phone, 'phone-13-career', '/p/demo-4', async p => { await p.mouse.move(195, 600); for (let k = 0; k < 2; k++) { await p.mouse.wheel(0, 500); await p.waitForTimeout(200); } });
 await shoot(phone, 'phone-14-reels', '/reels');
+await shoot(phone, 'phone-15-network', '/network');
 await shoot(phone, 'phone-07-discover', '/discover');
 await shoot(phone, 'phone-08-discover-more', '/discover', async p => { await p.mouse.move(195, 600); await p.mouse.wheel(0, 900); });
 await shoot(desk, 'desk-05-discover', '/discover');

@@ -16,6 +16,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.favlib.favorites2.check</string>
+		<string>com.favlib.favorites2.clips</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -33,6 +34,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
+		<string>processing</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>

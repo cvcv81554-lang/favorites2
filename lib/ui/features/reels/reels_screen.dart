@@ -18,6 +18,7 @@ import '../../core/state.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../works/works_screen.dart' show worksProvider, workTasteProvider, showWorkSheet;
+import 'reel_center.dart';
 
 /// إشارات «مقاطع» (محفوظة على الجهاز فقط).
 class ReelSigN extends AsyncNotifier<ReelSignals> {
@@ -29,7 +30,7 @@ class ReelSigN extends AsyncNotifier<ReelSignals> {
 final reelSigProvider = AsyncNotifierProvider<ReelSigN, ReelSignals>(ReelSigN.new);
 
 /// جلب الإعلانات الرسمية من ThePornDB لأعمال مفضلاتك (تُدمج في أعمالهن بلا تكرار — يملأ «tr» فقط حيث ينقص).
-Future<String> fetchTrailers(WidgetRef ref, {bool favsOnly = true, void Function(String)? progress}) async {
+Future<String> fetchTrailers(WidgetRef ref, {bool favsOnly = false, void Function(String)? progress}) async {
   if (!await ApiKeys.has(ApiKeys.tpdb)) return 'المقاطع تأتي من ThePornDB — أضف مفتاحه من «المزيد».';
   final lib = ref.read(libraryProvider.notifier);
   final ps = lib.items.where((p) => !p.isMinor && p.pdbIds.isNotEmpty && (!favsOnly || p.fav || p.rating >= 4)).toList();
@@ -38,8 +39,8 @@ Future<String> fetchTrailers(WidgetRef ref, {bool favsOnly = true, void Function
   for (final p in ps) {
     i++; progress?.call('جلب مقاطع ${p.name} ($i/${ps.length})…');
     var works = p.works;
-    for (final id in p.pdbIds.take(3)) {
-      try { works = mergeWorks(works, await TPDB.scenes(id, maxPages: 3)).list; }
+    for (final id in p.pdbIds) {
+      try { works = mergeWorks(works, await TPDB.scenes(id, maxPages: 40)).list; }
       on SourceError catch (e) { if (e.status == -2 || e.status == 401 || e.status == 403) return e.msg; }
     }
     final cur = lib.items.where((x) => x.id == p.id).firstOrNull ?? p;
@@ -66,33 +67,33 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 
   @override void dispose() { _pc.dispose(); super.dispose(); }
 
+  Set<String> _cached = {};
+
   void _build() {
     final sig = ref.read(reelSigProvider).value ?? const ReelSignals({}, {});
-    _feed = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed, playable: (u) => hostUsable(_hosts, u));
-    _hidden = _scope().where((g) => !hostUsable(_hosts, g.tr)).length;
+    bool cached(String u) => _cached.contains(clipKeyOf(u));
+    _feed = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed, n: 200,
+      playable: (u) => hostUsable(_hosts, u) || cached(u), isCached: cached, photoFallback: true);
+    _hidden = _feed!.where((r) => r.photo).length;
     _cur = 0;
     for (final r in _feed!) { if (sig.clips[r.key]?['l'] == 1) _liked.add(r.key); }
-    if (_hidden > 0 && _msg.isEmpty) _msg = 'يُعرض ${_feed!.length} مقطعًا يعمل على شبكتك · $_hidden مخفي لأن خوادمها محجوبة (تعمل كلها مع VPN)';
+    final ready = _feed!.where((r) => !r.photo && cached(r.url)).length;
+    if (_msg.isEmpty) _msg = '${_feed!.length - _hidden} مقطعًا يعمل${ready > 0 ? ' ($ready جاهز على جهازك)' : ''}${_hidden > 0 ? ' · $_hidden «صور» بدل مقاطع خوادمها محجوبة على شبكتك' : ''}';
   }
 
   Iterable<WorkGroup> _scope() => ref.read(worksProvider).where((g) => g.tr.isNotEmpty && (!_favsOnly || g.who.any((p) => p.fav || p.rating >= 4)));
 
-  /// قبل العرض: يفحص الخوادم غير المفحوصة أو القديمة (طلب صغير لكل خادم، 4 معًا) ويحفظ النتيجة — فيُعرض ما يعمل فقط.
+  /// قبل العرض: إعدادات الصوت، المقاطع المحفوظة، وفحص الخوادم غير المفحوصة أو القديمة — فيُعرض ما يعمل والمحفوظ أولًا.
   Future<void> _prepare({bool force = false}) async {
+    final cfg = await ref.read(reelsCfgProvider.future);
+    _muted = !cfg.sound;
     final repo = await ref.read(repoProvider.future);
-    _hosts = Map<String, dynamic>.from(await repo.kvGet('reel_hosts') as Map? ?? {});
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final byHost = <String, String>{};
-    for (final g in _scope()) { final h = hostOf(g.tr); if (h.isNotEmpty) byHost.putIfAbsent(h, () => g.tr); }
-    final todo = byHost.entries.where((e) => force || hostStale(_hosts[e.key] as Map?, now)).toList();
-    if (todo.isNotEmpty) {
-      if (mounted) setState(() { _preparing = true; _msg = 'فحص خوادم المقاطع على شبكتك (0/${todo.length})…'; });
-      var done = 0;
-      for (var i = 0; i < todo.length; i += 4) {
-        await Future.wait([for (final e in todo.skip(i).take(4)) probeVideoUrl(e.value).then((r) { _hosts[e.key] = {'ok': r.$1, 't': now, 'why': r.$2}; done++; if (mounted) setState(() => _msg = 'فحص خوادم المقاطع على شبكتك ($done/${todo.length})…'); })]);
-      }
-      await repo.kvSet('reel_hosts', _hosts);
-    }
+    _hosts = await loadHosts(repo);
+    _cached = (await clipCacheStats()).$1;
+    final todo = _scope().map((g) => g.tr);
+    if (mounted) setState(() { _preparing = true; _msg = 'فحص خوادم المقاطع على شبكتك…'; });
+    await probeHosts(_hosts, todo, force: force, progress: (d, t) { if (mounted) setState(() => _msg = 'فحص خوادم المقاطع على شبكتك ($d/$t)…'); });
+    await saveHosts(repo, _hosts);
     if (!mounted) return;
     setState(() { _preparing = false; _msg = ''; _build(); });
     _prefetch(0); _prefetch(1);
@@ -106,7 +107,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     if (_busy || DateTime.now().millisecondsSinceEpoch - last < 3 * 86400000 || !await ApiKeys.has(ApiKeys.tpdb)) return;
     final before = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length;
     if (mounted) setState(() => _msg = 'تحديث المقاطع في الخلفية…');
-    final m = await fetchTrailers(ref, favsOnly: _favsOnly);
+    final m = await fetchTrailers(ref);
     final added = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length - before;
     if (!mounted) return;
     setState(() => _msg = added > 0 ? 'وصل $added مقطعًا جديدًا — اضغط ↻ لعرضها' : m.startsWith('جاهز') ? '' : m);
@@ -134,7 +135,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 
   Future<void> _fetch() async {
     setState(() { _busy = true; _msg = 'جارٍ جلب المقاطع…'; });
-    final m = await fetchTrailers(ref, favsOnly: _favsOnly, progress: (x) { if (mounted) setState(() => _msg = x); });
+    final m = await fetchTrailers(ref, progress: (x) { if (mounted) setState(() => _msg = x); });
     if (!mounted) return;
     setState(() { _busy = false; _msg = m; _seed++; });
     await _prepare();
@@ -157,28 +158,10 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       onTap: () { Navigator.pop(c); ref.read(reelSigProvider.notifier).dislikeIt(hideKey: r.key); _skip(); }),
   ])));
 
-  /// حالة كل خوادم المقاطع على شبكتك: عدد مقاطع كل خادم، يعمل أم محجوب، والسبب — مع إعادة الفحص.
-  void _diagnose(List<Reel> feed) {
-    final count = <String, int>{};
-    for (final g in _scope()) { final h = hostOf(g.tr); if (h.isNotEmpty) count[h] = (count[h] ?? 0) + 1; }
-    final hosts = count.keys.toList()..sort((a, b) => count[b]!.compareTo(count[a]!));
-    showModalBottomSheet(context: context, isScrollControlled: true, useSafeArea: true, builder: (c) => DraggableScrollableSheet(expand: false, initialChildSize: .8, builder: (c, sc) {
-      final ok = hosts.where((h) => (_hosts[h] as Map?)?['ok'] == true).fold<int>(0, (s, h) => s + count[h]!);
-      final bad = hosts.where((h) => (_hosts[h] as Map?)?['ok'] == false).fold<int>(0, (s, h) => s + count[h]!);
-      return ListView(controller: sc, padding: const EdgeInsets.all(S.s4), children: [
-        Text('خوادم المقاطع على شبكتك', style: Theme.of(c).textTheme.titleLarge),
-        Text('${count.values.fold<int>(0, (a, b) => a + b)} مقطعًا · ${hosts.length} خادمًا · يعمل $ok · محجوب $bad', style: const TextStyle(color: C.muted)),
-        const SizedBox(height: S.s2),
-        const Text('المقاطع من الخوادم المحجوبة تُخفى تلقائيًا، ويُعاد فحصها كل 3 أيام (أو الآن). مع VPN تعمل كلها.', style: TextStyle(color: C.muted, fontSize: 12.5)),
-        Align(alignment: AlignmentDirectional.centerStart, child: TextButton.icon(onPressed: () { Navigator.pop(c); _prepare(force: true); }, icon: const Icon(Icons.refresh_rounded), label: const Text('إعادة فحص كل الخوادم الآن'))),
-        if (hosts.isEmpty) const Text('لا روابط مقاطع بعد — اضغط «جلب المقاطع» أولًا.'),
-        for (final h in hosts) () { final st = _hosts[h] as Map?;
-          return ListTile(dense: true, contentPadding: EdgeInsets.zero,
-            leading: Icon(st == null ? Icons.help_outline_rounded : st['ok'] == true ? Icons.check_circle_rounded : Icons.cancel_rounded, color: st == null ? C.muted : st['ok'] == true ? C.ok : C.danger),
-            title: Text('$h · ${count[h]} مقطع', style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Text(st == null ? 'لم يُفحص بعد' : '${st['why'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: C.muted))); }(),
-      ]);
-    }));
+  Future<void> _toggleSound() async {
+    setState(() => _muted = !_muted);
+    final c = await ref.read(reelsCfgProvider.future);
+    await ref.read(reelsCfgProvider.notifier).set(c.copy(sound: !_muted));
   }
 
   void _skip() { if (_feed != null && _cur + 1 < _feed!.length) _pc.nextPage(duration: const Duration(milliseconds: 280), curve: Curves.easeOut); }
@@ -194,8 +177,9 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       else PageView.builder(controller: _pc, scrollDirection: Axis.vertical, itemCount: feed.length,
         onPageChanged: (i) { setState(() => _cur = i); _prefetch(i + 1); },
         itemBuilder: (c, i) => (i - _cur).abs() > 1 ? const ColoredBox(color: Colors.black)   // لا يُحمَّل إلا الحالي والمجاوران
+          : feed[i].photo ? _PhotoReel(key: ValueKey('ph${feed[i].key}'), reel: feed[i], active: i == _cur, onMenu: () => _menu(feed[i]))
           : _ReelPage(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, muted: _muted, liked: _liked.contains(feed[i].key),
-              onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onMute: () => setState(() => _muted = !_muted),
+              onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onMute: _toggleSound,
               preferDownload: (_hosts[hostOf(feed[i].url)] as Map?)?['dl'] == true, onDownloaded: () => _markDl(feed[i].url),
               onError: (why) { _markBlocked(feed[i].url, why.isEmpty ? 'تعذّر التشغيل والتنزيل' : why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
       // الشريط العلوي
@@ -204,7 +188,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
         const Text('مقاطع', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 18)),
         const Spacer(),
         ChoiceChip(label: Text(_favsOnly ? 'مفضلاتي' : 'كل مكتبتي'), selected: true, showCheckmark: false, onSelected: (_) => setState(() { _favsOnly = !_favsOnly; _seed++; _build(); if (_pc.hasClients) _pc.jumpToPage(0); })),
-        IconButton(tooltip: 'فحص المقاطع', onPressed: () => _diagnose(feed), icon: const Icon(Icons.troubleshoot_rounded, color: Colors.white)),
+        IconButton(tooltip: 'الشبكة والمقاطع', onPressed: () async { await context.push('/network'); if (mounted) { setState(() => _msg = ''); _prepare(); } }, icon: const Icon(Icons.network_check_rounded, color: Colors.white)),
         IconButton(tooltip: 'جلب مقاطع جديدة', onPressed: _busy ? null : _fetch, icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh_rounded, color: Colors.white)),
       ]))),
       if (_msg.isNotEmpty && (_busy || feed.isNotEmpty)) Positioned(top: 100, left: S.s4, right: S.s4, child: SafeArea(child: Container(padding: const EdgeInsets.all(S.s2),
@@ -248,7 +232,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     final saved = await cachedClipPath(url);
     if (saved != null) { if (await _open(_fileController(saved))) return; }
     if (!widget.preferDownload) {
-      final ok = await _open(VideoPlayerController.networkUrl(Uri.parse(url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true)));
+      final ok = await _open(VideoPlayerController.networkUrl(Uri.parse(url), videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false)));
       if (ok) return;
     }
     if (clipCacheSupported) {
@@ -262,7 +246,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
 
   VideoPlayerController _fileController(String path) {
     final f = fileVideoSource(path);
-    return f == null ? VideoPlayerController.networkUrl(Uri.file(path)) : VideoPlayerController.file(f as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true));
+    return f == null ? VideoPlayerController.networkUrl(Uri.file(path)) : VideoPlayerController.file(f as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false));
   }
 
   Future<bool> _open(VideoPlayerController c) async {
@@ -371,5 +355,45 @@ Future<(bool, String)> probeVideoUrl(String url) async {
     if (looksBlocked(s)) return (false, 'محجوب على شبكتك (الاتصال يُقطع أثناء التشفير)');
     if (s.contains('Timeout')) return (false, 'لا رد (مهلة)');
     return (false, s.length > 90 ? s.substring(0, 90) : s);
+  }
+}
+
+
+/// «مقطع صور»: لعمل مقطعه محجوب على شبكتك — صورة العمل وصور ممثلاته بحركة تكبير وانزلاق بطيئة (Ken Burns)، مُعلَّم بوضوح.
+class _PhotoReel extends StatefulWidget {
+  const _PhotoReel({super.key, required this.reel, required this.active, required this.onMenu});
+  final Reel reel; final bool active; final VoidCallback onMenu;
+  @override State<_PhotoReel> createState() => _PhotoReelState();
+}
+class _PhotoReelState extends State<_PhotoReel> with SingleTickerProviderStateMixin {
+  late final _a = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+  int _i = 0;
+  @override
+  void initState() {
+    super.initState();
+    _a.addStatusListener((s) { if (s == AnimationStatus.completed && mounted && widget.reel.images.length > 1) { setState(() => _i = (_i + 1) % widget.reel.images.length); _a.forward(from: 0); } });
+    if (widget.active) _a.forward();
+  }
+  @override void didUpdateWidget(covariant _PhotoReel o) { super.didUpdateWidget(o); if (widget.active && !_a.isAnimating) { _a.forward(); } else if (!widget.active) { _a.stop(); } }
+  @override void dispose() { _a.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.reel, g = r.g, imgs = r.images.isEmpty ? [g.p] : r.images;
+    return GestureDetector(onLongPress: widget.onMenu, child: Stack(fit: StackFit.expand, children: [
+      const ColoredBox(color: Colors.black),
+      AnimatedSwitcher(duration: const Duration(milliseconds: 600), child: AnimatedBuilder(key: ValueKey(_i), animation: _a, builder: (_, _) {
+        final t = Curves.easeInOut.transform(_a.value);
+        return Transform.scale(scale: 1.05 + .12 * t, child: Transform.translate(offset: Offset((_i.isEven ? -1 : 1) * 14 * t, -10 * t), child: WorkImage(imgs[_i % imgs.length], name: g.s)));
+      })),
+      Positioned(top: 110, left: 0, right: 0, child: Center(child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5), decoration: BoxDecoration(color: const Color(0xCC0A0810), borderRadius: BorderRadius.circular(99)),
+        child: const Text('📷 صور — مقطعه محجوب على شبكتك', style: TextStyle(color: Colors.white70, fontSize: 12.5))))),
+      Positioned(left: 0, right: 0, bottom: 0, child: Container(padding: const EdgeInsets.fromLTRB(S.s4, 60, S.s4, S.s5),
+        decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x00000000), Color(0xD9000000)])),
+        child: SafeArea(top: false, child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(g.who.map((p) => p.name).take(2).join('، '), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)),
+          Text(g.t, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13.5)),
+          Text([if (g.s.isNotEmpty) g.s, if (g.y.isNotEmpty) g.y].join(' · '), style: const TextStyle(color: Colors.white60, fontSize: 12)),
+        ])))),
+    ]));
   }
 }

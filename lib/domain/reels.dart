@@ -6,7 +6,12 @@ import 'works.dart';
 
 /// «مقاطع»: إعلانات الأعمال الرسمية لممثلاتك في واجهة رأسية — بخوارزمية محلية تتعلم من سلوكك (لا يُرسل شيء لأي جهة).
 
-class Reel { final WorkGroup g; final String url, why; final bool explore; const Reel(this.g, this.url, this.why, {this.explore = false}); String get key => g.key; }
+/// [photo]: «مقطع صور» بديل لعمل مقطعه محجوب على شبكتك (صورة العمل + صور ممثلاته بحركة بطيئة) — مُعلَّم بوضوح.
+class Reel {
+  final WorkGroup g; final String url, why; final bool explore, photo; final List<String> images;
+  const Reel(this.g, this.url, this.why, {this.explore = false, this.photo = false, this.images = const []});
+  String get key => g.key;
+}
 
 /// إشارات المشاهدة المحفوظة على الجهاز.
 class ReelSignals {
@@ -48,11 +53,14 @@ ReelSignals dislike(ReelSignals s, {String? performerId, String? studio, String?
 
 /// ترتيب المقاطع: ذوقك في الأعمال + ميلك المتعلَّم هنا + المفضلة + الحداثة − ما رأيته كثيرًا،
 /// ثم تشكيل الخلاصة: ~80٪ الأفضل و~20٪ استكشاف (ممثلات/استوديوهات أقل ظهورًا)، ولا تتكرر ممثلة خلال 3 مقاطع متتالية.
-List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool favsOnly = true, int seed = 0, int n = 80, bool Function(String url)? playable}) {
+/// [playable]: هل يعمل الخادم (أو المقطع محفوظ)؛ [isCached]: محفوظ على الجهاز (يُفضَّل قليلًا: يعمل فورًا)؛
+/// [photoFallback]: ما لا يعمل يصبح «مقطع صور» بأولوية أقل بدل أن يختفي.
+List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool favsOnly = true, int seed = 0, int n = 80, bool Function(String url)? playable, bool Function(String url)? isCached, bool photoFallback = false}) {
   final pool = <(WorkGroup, double, String)>[];
   for (final g in all) {
     if (g.tr.isEmpty || g.who.isEmpty) continue;
-    if (playable != null && !playable(g.tr)) continue;   // خادم محجوب على شبكتك أو لا يُشغَّل
+    final asPhoto = playable != null && !playable(g.tr);
+    if (asPhoto && (!photoFallback || g.p.isEmpty)) continue;   // خادم محجوب على شبكتك أو لا يُشغَّل
     if (favsOnly && !g.who.any((p) => p.fav || p.rating >= 4)) continue;
     final c = sig.clips[g.key];
     if (c?['h'] == 1) continue;
@@ -71,8 +79,10 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
     final yr = int.tryParse(g.y) ?? 0; if (yr > 0) score += max(0, yr - 2015) * .02;
     score -= ((c?['n'] ?? 0) * .35).toDouble();                       // ما رأيته ينزل تدريجيًا
     if (c?['l'] == 1) score += .2;
+    if (!asPhoto && isCached != null && isCached(g.tr)) score += .25;   // جاهز على الجهاز: بلا انتظار
+    if (asPhoto) score -= .6;                                             // المقاطع الحقيقية أولًا
     why = affWhy ?? (st != null && st.score > .2 ? 'من ${g.s} الذي تحبه' : g.who.any((p) => p.fav) ? 'من مفضلاتك: ${g.who.firstWhere((p) => p.fav).name}' : 'من مكتبتك');
-    pool.add((g, score, why));
+    pool.add((g, score, asPhoto ? '📷 صور — مقطعه محجوب على شبكتك' : why));
   }
   if (pool.isEmpty) return const [];
   pool.sort((a, b) => b.$2.compareTo(a.$2));
@@ -94,7 +104,9 @@ List<Reel> rankReels(List<WorkGroup> all, WorkTaste t, ReelSignals sig, {bool fa
       }
     }
     used.add(pick.$1.key);
-    out.add(Reel(pick.$1, pick.$1.tr, exploreTurn ? 'استكشاف: شيء مختلف قليلًا' : pick.$3, explore: exploreTurn));
+    final ph = pick.$3.startsWith('📷');
+    out.add(Reel(pick.$1, pick.$1.tr, ph ? pick.$3 : exploreTurn ? 'استكشاف: شيء مختلف قليلًا' : pick.$3, explore: exploreTurn && !ph, photo: ph,
+      images: ph ? [pick.$1.p, for (final p in pick.$1.who) ...p.photos.take(2)].where((x) => x.isNotEmpty).toList() : const []));
     recent.addAll(pick.$1.who.map((p) => p.id)); while (recent.length > 3) { recent.removeAt(0); }
   }
   return out;

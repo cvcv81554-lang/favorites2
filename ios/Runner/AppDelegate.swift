@@ -11,6 +11,8 @@ import workmanager_apple
     // التحديث في الخلفية: محرك Flutter الخلفي يحتاج كل الإضافات، والمهمة الدورية (iOS يقرر توقيتها)
     WorkmanagerPlugin.setPluginRegistrantCallback { registry in GeneratedPluginRegistrant.register(with: registry) }
     WorkmanagerPlugin.registerPeriodicTask(withIdentifier: "com.favlib.favorites2.check", earliestBeginInSeconds: NSNumber(value: 2 * 60 * 60))
+    // التحميل الليلي للمقاطع: مهمة معالجة (أثناء الشحن والاتصال — iOS يقرر التوقيت)
+    WorkmanagerPlugin.registerBGProcessingTask(withIdentifier: "com.favlib.favorites2.clips")
     UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
     // بيانات المستخدم تبقى على جهازه: مجلد التطبيق (القاعدة والصور) خارج نسخ iCloud
     if var dir = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {

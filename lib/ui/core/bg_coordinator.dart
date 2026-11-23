@@ -8,6 +8,7 @@ import '../../data/background.dart';
 import '../../data/sources.dart';
 import '../../domain/performer.dart';
 import '../features/discover/taste_state.dart';
+import '../features/reels/reel_center.dart';
 import '../features/studio/studio_screen.dart';
 import '../../data/privacy.dart';
 import 'home_widget_sync.dart';
@@ -66,6 +67,14 @@ class _BgCoordinatorState extends ConsumerState<BgCoordinator> with WidgetsBindi
       await writeInput(ref, lib: ref.read(libraryProvider).value ?? lib);
       await rescheduleReminders(ref);
       await refreshHomeWidget(ref);
+      // المقاطع: وضع اللحاق (إن صارت الشبكة تصل لخوادم محجوبة) ثم التحميل المسبق على Wi-Fi — بعد هدوء بدء التشغيل
+      Future<void>.delayed(const Duration(seconds: 15), () async {
+        if (!mounted) return;
+        final p = ref.read(prefetchProvider.notifier);
+        final opened = await p.catchUp();
+        if (opened == 0) await p.run();
+        if (opened > 0 && mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('شبكتك الآن تصل إلى $opened خادمًا كان محجوبًا — نحمّل مقاطعه لتعمل لاحقًا بدونه')));
+      });
     } catch (_) {}
   }
 

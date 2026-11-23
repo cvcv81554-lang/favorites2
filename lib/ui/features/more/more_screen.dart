@@ -122,6 +122,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
         const _Reach(),
+        ListTile(leading: const Icon(Icons.slow_motion_video_rounded, color: C.gold), title: const Text('الشبكة والمقاطع'), subtitle: const Text('الخوادم على شبكتك، المقاطع المحفوظة، التحميل المسبق والليلي', style: TextStyle(color: C.muted)), onTap: () => context.push('/network')),
         const _DualTools(),
       ]),
       _group('الخط', [const _FontSection()]),

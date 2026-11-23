@@ -2,4 +2,9 @@
 Future<String?> cachedClipPath(String url) async => null;
 Future<String?> downloadClip(String url, {void Function(double)? onProgress}) async => null;
 bool get clipCacheSupported => false;
+void setClipCacheLimit(int bytes) {}
+String clipKeyOf(String url) => url;
+Future<(Set<String>, int)> clipCacheStats() async => (<String>{}, 0);
+Future<void> clearClipCache() async {}
+String? higherQuality(String url) => null;
 Object? fileVideoSource(String path) => null;
