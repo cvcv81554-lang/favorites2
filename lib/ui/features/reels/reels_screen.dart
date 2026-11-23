@@ -42,7 +42,7 @@ final reelSigProvider = AsyncNotifierProvider<ReelSigN, ReelSignals>(ReelSigN.ne
 /// جلب الإعلانات الرسمية من ThePornDB لأعمال مفضلاتك (تُدمج في أعمالهن بلا تكرار — يملأ «tr» فقط حيث ينقص).
 Future<String> fetchTrailers(WidgetRef ref, {bool favsOnly = false, void Function(String)? progress}) async {
   if (!await ApiKeys.has(ApiKeys.tpdb)) return 'المقاطع تأتي من ThePornDB — أضف مفتاحه من «المزيد».';
-  final lib = ref.read(libraryProvider.notifier);
+  final lib = ref.read(libraryProvider.notifier); final repoF = ref.read(repoProvider.future);
   final ps = lib.items.where((p) => !p.isMinor && p.pdbIds.isNotEmpty && (!favsOnly || p.fav || p.rating >= 4)).toList();
   if (ps.isEmpty) return 'لا ممثلات مرتبطة بـ ThePornDB في ${favsOnly ? 'مفضلاتك' : 'مكتبتك'} — اربطها أولًا (تحديث من المصدرين).';
   var withTr = 0, i = 0; final changed = <Performer>[];
@@ -59,7 +59,7 @@ Future<String> fetchTrailers(WidgetRef ref, {bool favsOnly = false, void Functio
     changed.add(cur.copyWith({'works': merged}));
   }
   if (changed.isNotEmpty) await lib.upsertMany(changed);
-  await (await ref.read(repoProvider.future)).kvSet('reels_fetched_at', DateTime.now().millisecondsSinceEpoch);
+  await (await repoF).kvSet('reels_fetched_at', DateTime.now().millisecondsSinceEpoch);
   return withTr == 0 ? 'لم تُعثر على إعلانات رسمية لأعمال ${favsOnly ? 'مفضلاتك' : 'مكتبتك'} في ThePornDB.' : 'جاهز: $withTr مقطعًا';
 }
 
@@ -127,14 +127,18 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
   /// قبل العرض: إعدادات الصوت، المقاطع المحفوظة، وفحص الخوادم غير المفحوصة أو القديمة — فيُعرض ما يعمل والمحفوظ أولًا.
   Future<void> _prepare({bool force = false}) async {
     final cfg = await ref.read(reelsCfgProvider.future);
+    if (!mounted) return;
     _muted = !cfg.sound; _hqOnly = cfg.hqOnly; _auto = cfg.auto;
     if (!_tabInit) { _tabInit = true; _favsOnly = cfg.favTab; }
     final repo = await ref.read(repoProvider.future);
     _hosts = await loadHosts(repo);
     _quality = Map<String, dynamic>.from(await repo.kvGet('reel_quality') as Map? ?? {});
+    if (!mounted) return;
     _server = await _loadServer(cfg);
+    if (!mounted) return;
     _embeds = await _loadEmbeds(cfg);
     _cached = (await clipCacheStats()).$1;
+    if (!mounted) return;
     final todo = _scope().map((g) => g.tr);
     if (mounted) setState(() { _preparing = true; _msg = 'فحص خوادم المقاطع على شبكتك…'; });
     await probeHosts(_hosts, todo, force: force, progress: (d, t) { if (mounted) setState(() => _msg = 'فحص خوادم المقاطع على شبكتك ($d/$t)…'); });
@@ -147,11 +151,12 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 
   /// مقاطع خادم Stash الخاص بك (إن ضُبط ومُفعّل): ربط ممثلاتك بخادمك (بمعرّف StashDB أو الاسم) مع ذاكرة، ثم جلب مقاطعهن.
   Future<List<WorkGroup>> _loadServer(ReelsCfg cfg) async {
-    if (!cfg.server || !await StashServer.configured()) return const [];
+    if (!cfg.server || !await StashServer.configured() || !mounted) return const [];
     try {
       if (mounted) setState(() => _msg = 'الاتصال بخادم Stash…');
       final repo = await ref.read(repoProvider.future);
       final map = Map<String, dynamic>.from(await repo.kvGet('stash_local_map') as Map? ?? {});
+      if (!mounted) return const [];
       final lib = ref.read(libraryProvider).value ?? const <Performer>[];
       final want = lib.where((p) => !p.isMinor).toList();   // كل المكتبة؛ تبويب «مفضلاتي» يصفّي عند الترتيب
       var asked = 0;
@@ -172,6 +177,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     final repo = await ref.read(repoProvider.future);
     final reach = Map<String, dynamic>.from(await repo.kvGet('embed_reach') as Map? ?? {});
     final cache = Map<String, dynamic>.from(await repo.kvGet('embed_cache') as Map? ?? {});
+    if (!mounted) return const [];
     final now = DateTime.now().millisecondsSinceEpoch;
     final lib = (ref.read(libraryProvider).value ?? const <Performer>[]).where((p) => !p.isMinor).toList()..sort((x, y) => (y.fav ? 1 : 0).compareTo(x.fav ? 1 : 0));   // المفضلات أولًا
     final out = <WorkGroup>[]; var blocked = 0;
@@ -206,10 +212,11 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
   Future<void> _autoUpdate() async {
     final repo = await ref.read(repoProvider.future);
     final last = (await repo.kvGet('reels_fetched_at') as num?)?.toInt() ?? 0;
-    if (_busy || DateTime.now().millisecondsSinceEpoch - last < 3 * 86400000 || !await ApiKeys.has(ApiKeys.tpdb)) return;
+    if (_busy || DateTime.now().millisecondsSinceEpoch - last < 3 * 86400000 || !await ApiKeys.has(ApiKeys.tpdb) || !mounted) return;
     final before = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length;
     if (mounted) setState(() => _msg = 'تحديث المقاطع في الخلفية…');
     final m = await fetchTrailers(ref);
+    if (!mounted) return;
     final added = ref.read(worksProvider).where((g) => g.tr.isNotEmpty).length - before;
     if (!mounted) return;
     setState(() => _msg = added > 0 ? 'وصل $added مقطعًا جديدًا — اضغط ↻ لعرضها' : m.startsWith('جاهز') ? '' : m);

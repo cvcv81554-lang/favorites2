@@ -29,9 +29,15 @@ void main() {
   }
 
   testWidgets('الأقسام الجديدة تعمل على الآيفون', (t) async {
+    final errors = <String>[];
+    final orig = FlutterError.onError;
+    const nl = '\n';
+    FlutterError.onError = (d) { errors.add('${d.exceptionAsString()}$nl${(d.stack ?? StackTrace.empty).toString().split(nl).take(10).join(nl)}'); };
+    addTearDown(() => FlutterError.onError = orig);
+    void noErrors(String where) { expect(errors, isEmpty, reason: '$where:$nl${errors.join('$nl---$nl')}'); }
     app.main();
     await settle(t, 4000);
-    expect(t.takeException(), isNull);
+    noErrors('home');
     await shot(t, '01-home');
 
     // البحث باللغة الطبيعية: رقائق «فهمت»
@@ -52,10 +58,11 @@ void main() {
       ('/network', '08-network', 'الشبكة والمقاطع'),
     ]) {
       await go(t, route);
-      expect(t.takeException(), isNull, reason: route);
+      noErrors(route);
       expect(find.text(text), findsWidgets, reason: route);
       await shot(t, name);
       await back(t);
+      noErrors('$route (بعد الإغلاق)');
     }
   });
 }
