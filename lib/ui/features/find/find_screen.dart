@@ -2,7 +2,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'dart:async';
+
+import '../../../data/platform/native_bridge.dart';
 import '../../../domain/age_gate.dart';
+import '../../../domain/nl_query.dart';
+import '../../../domain/taste.dart' show featuresOf;
 import '../../../domain/performer.dart';
 import '../../../domain/sanitize.dart';
 import '../../../domain/works.dart';
@@ -24,8 +29,43 @@ class _FindScreenState extends ConsumerState<FindScreen> {
   RangeValues age = const RangeValues(18, 60);
   double minRating = 0; bool favOnly = false, showFilters = false;
   final _open = <String>{};   // الأقسام المفتوحة كاملة
+  // البحث باللغة الطبيعية: محلّل محلي فوري، ثم نموذج Apple على الجهاز (إن توفّر) يدقّق الفهم
+  NlQuery _nl = const NlQuery(); bool _byAi = false; String _aiSt = ''; Timer? _aiT; int _aiReq = 0;
+  Map<String, Map<String, Object>> _feats = {};
 
-  @override void dispose() { _q.dispose(); super.dispose(); }
+  @override
+  void initState() {
+    super.initState();
+    NativeBridge.aiStatus().then((v) { if (mounted) setState(() => _aiSt = v); });
+    () async {
+      // الخصائص الموثّقة المحفوظة من تحليل الذوق (لا طلبات شبكة هنا)
+      final cache = Map<String, dynamic>.from(await (await ref.read(repoProvider.future)).kvGet('attr_cache') as Map? ?? {});
+      final lib = ref.read(libraryProvider).value ?? const <Performer>[];
+      final f = <String, Map<String, Object>>{};
+      for (final p in lib) {
+        final c = cache[p.stashId.isNotEmpty ? p.stashId : 'tp:${p.pdbId}'];
+        if (c is Map && c['d'] is Map) f[p.id] = featuresOf(Map<String, dynamic>.from(c['d'] as Map));
+      }
+      if (mounted) setState(() => _feats = f);
+    }();
+  }
+
+  @override void dispose() { _q.dispose(); _aiT?.cancel(); super.dispose(); }
+
+  void _onQuery(String v) {
+    // اسم موجود في مكتبتك (مثل اسم فيه «Black») ⇒ بحث بالاسم، لا وصف
+    final nv = norm(v), lib = ref.read(libraryProvider).value ?? const <Performer>[];
+    final isName = nv.length >= 3 && lib.any((p) => norm(p.name).contains(nv) || norm(p.aliases).contains(nv));
+    setState(() { q = v; tag = ''; _nl = isName ? const NlQuery() : parseQuery(v); _byAi = false; });
+    _aiT?.cancel();
+    if (isName || _aiSt != 'available' || v.trim().split(RegExp(r'\s+')).length < 2) return;
+    final id = ++_aiReq;
+    _aiT = Timer(const Duration(milliseconds: 700), () async {
+      final a = await NativeBridge.aiParse(v);
+      if (!mounted || id != _aiReq || a == null || a.isEmpty) return;
+      setState(() { _nl = a; _byAi = true; });
+    });
+  }
 
   bool get _filtering => age.start > 18 || age.end < 60 || country.isNotEmpty || minRating > 0 || favOnly;
 
@@ -33,11 +73,12 @@ class _FindScreenState extends ConsumerState<FindScreen> {
   Widget build(BuildContext context) {
     final lib = (ref.watch(libraryProvider).value ?? const <Performer>[]).where((p) => !p.isMinor).toList();
     final works = ref.watch(worksProvider);
-    final nq = norm(q), nt = norm(tag);
+    final nlMode = !_nl.isEmpty;
+    final nq = nlMode ? norm(_nl.text) : norm(q), nt = norm(tag);
     bool hit(String s) => nq.isEmpty || norm(s).contains(nq);
 
     // الممثلات
-    final perf = lib.where((p) {
+    final perf = nlMode ? nlSort(_nl, lib.where((p) => nlMatch(_nl, p, _feats[p.id] ?? const {}) && (nq.isEmpty || hit(p.name) || hit(p.aliases))).toList()) : lib.where((p) {
       if (nt.isNotEmpty && !p.tags.any((t) => norm(t) == nt)) return false;
       if (nq.isNotEmpty && !(hit(p.name) || hit(p.aliases) || hit(p.country) || p.tags.any(hit) || hit(p.notes))) return false;
       final a = sdAge(p.birth).age;
@@ -47,18 +88,20 @@ class _FindScreenState extends ConsumerState<FindScreen> {
       if (favOnly && !p.fav) return false;
       return true;
     }).toList()..sort((a, b) => (norm(a.name).startsWith(nq) ? 0 : 1).compareTo(norm(b.name).startsWith(nq) ? 0 : 1));
-    final active = nq.isNotEmpty || nt.isNotEmpty;
+    final active = nq.isNotEmpty || nt.isNotEmpty || nlMode;
+    final needFeats = _nl.hair.isNotEmpty || _nl.eth.isNotEmpty || _nl.eyes.isNotEmpty || _nl.minHeight != null || _nl.maxHeight != null || _nl.tattoos != null || _nl.breast != null;
+    final noData = nlMode && needFeats ? lib.where((p) => _feats[p.id] == null).length : 0;
     // الأعمال
-    final ws = !active ? <WorkGroup>[] : works.where((g) =>
+    final ws = !active || nlMode ? <WorkGroup>[] : works.where((g) =>
       (nt.isEmpty || g.tg.any((t) => norm(t) == nt)) &&
       (nq.isEmpty || hit(g.t) || hit(g.s) || g.tg.any(hit) || g.who.any((p) => hit(p.name)))).toList()..sort((a, b) => b.date.compareTo(a.date));
     // الاستوديوهات
     final studios = <String, (String, int)>{};
-    if (nq.isNotEmpty) { for (final g in works) { if (g.s.trim().isNotEmpty && hit(g.s)) { final k = norm(g.s); studios[k] = (studios[k]?.$1 ?? g.s.trim(), (studios[k]?.$2 ?? 0) + 1); } } }
+    if (nq.isNotEmpty && !nlMode) { for (final g in works) { if (g.s.trim().isNotEmpty && hit(g.s)) { final k = norm(g.s); studios[k] = (studios[k]?.$1 ?? g.s.trim(), (studios[k]?.$2 ?? 0) + 1); } } }
     final st = studios.values.toList()..sort((a, b) => b.$2.compareTo(a.$2));
     // الوسوم (من الممثلات والأعمال)
     final tags = <String, (String, int)>{};
-    if (nq.isNotEmpty) {
+    if (nq.isNotEmpty && !nlMode) {
       void add(String t) { if (t.trim().isEmpty || !hit(t)) return; final k = norm(t); tags[k] = (tags[k]?.$1 ?? t.trim(), (tags[k]?.$2 ?? 0) + 1); }
       for (final p in lib) { p.tags.forEach(add); }
       for (final g in works) { g.tg.forEach(add); }
@@ -74,10 +117,10 @@ class _FindScreenState extends ConsumerState<FindScreen> {
 
     return Scaffold(
       appBar: AppBar(titleSpacing: 0, title: TextField(controller: _q, autofocus: true, textInputAction: TextInputAction.search,
-        decoration: const InputDecoration(hintText: 'ابحث عن ممثلة، عمل، استوديو، أو وسم…', border: InputBorder.none),
-        onChanged: (v) => setState(() { q = v; tag = ''; })),
+        decoration: const InputDecoration(hintText: 'اسم، عمل، استوديو… أو «شقراء برازيلية بين 20 و25»', border: InputBorder.none),
+        onChanged: _onQuery),
         actions: [
-          if (q.isNotEmpty || tag.isNotEmpty) IconButton(tooltip: 'مسح', onPressed: () => setState(() { _q.clear(); q = ''; tag = ''; }), icon: const Icon(Icons.close_rounded)),
+          if (q.isNotEmpty || tag.isNotEmpty) IconButton(tooltip: 'مسح', onPressed: () => setState(() { _q.clear(); q = ''; tag = ''; _nl = const NlQuery(); }), icon: const Icon(Icons.close_rounded)),
           IconButton(tooltip: 'الفلاتر', onPressed: () => setState(() => showFilters = !showFilters), icon: Badge(isLabelVisible: _filtering, child: const Icon(Icons.tune_rounded))),
         ]),
       body: CustomScrollView(slivers: [
@@ -97,10 +140,19 @@ class _FindScreenState extends ConsumerState<FindScreen> {
             ]),
             if (_filtering) Align(alignment: AlignmentDirectional.centerEnd, child: TextButton(onPressed: () => setState(() { age = const RangeValues(18, 60); country = ''; minRating = 0; favOnly = false; }), child: const Text('إلغاء الفلاتر'))),
           ])))),
+        if (nlMode) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s3, S.s4, 0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(_byAi ? '✨ فهمت (بنموذج Apple على جهازك):' : 'فهمت:', style: const TextStyle(color: C.gold2, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final l in _nl.labels) InputChip(label: Text(l), onDeleted: () => setState(() => _nl = _nl.without(l))),
+            if (_nl.text.isNotEmpty) InputChip(avatar: const Icon(Icons.search_rounded, size: 16), label: Text('الاسم: ${_nl.text}'), onDeleted: () => setState(() => _nl = NlQuery.fromJson(_nl.toJson()))),
+          ]),
+          if (noData > 0) Padding(padding: const EdgeInsets.only(top: 6), child: Text('$noData ممثلة بلا بيانات وصفية بعد (الشعر، العرق، الطول…) فلا تظهر — حدّث «ملف ذوقك» في «اكتشف» أو اربطها بمصدر.', style: const TextStyle(color: C.muted, fontSize: 12))),
+        ]))),
         if (tag.isNotEmpty) SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.fromLTRB(S.s4, S.s3, S.s4, 0), child: Align(alignment: AlignmentDirectional.centerStart,
           child: InputChip(avatar: const Icon(Icons.sell_rounded, size: 16), label: Text('الوسم: $tag'), onDeleted: () => setState(() => tag = ''))))),
         if (!active && !_filtering) const SliverFillRemaining(hasScrollBody: false, child: EmptyState(title: 'بحث في كل مكتبتك',
-          body: 'اكتب اسم ممثلة أو عنوان عمل أو استوديو أو وسم — تظهر النتائج من كل الأقسام معًا.\nاضغط ⚙︎ لفلترة الممثلات بالعمر والبلد والتقييم.'))
+          body: 'اكتب اسم ممثلة أو عنوان عمل أو استوديو أو وسم — تظهر النتائج من كل الأقسام معًا.\nأو صف ما تريد: «شقراء برازيلية بين 20 و25 تقييمها 4 فما فوق».'))
         else ...[
           if (perf.isNotEmpty) ...[
             SliverToBoxAdapter(child: head('p', 'الممثلات', perf.length, 8)),

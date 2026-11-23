@@ -123,6 +123,7 @@ class _MoreScreenState extends ConsumerState<MoreScreen> {
         _KeyTile(name: 'StashDB', k: ApiKeys.stash, test: StashDB.test),
         _KeyTile(name: 'ThePornDB', k: ApiKeys.tpdb, test: TPDB.test),
         const _Reach(),
+        ListTile(leading: const Icon(Icons.face_retouching_natural_rounded, color: C.gold), title: const Text('ابحث بصورة'), subtitle: const Text('أقرب ممثلات مكتبتك وجهًا — على جهازك فقط', style: TextStyle(color: C.muted)), onTap: () => context.push('/faces')),
         ListTile(leading: const Icon(Icons.playlist_remove_rounded, color: C.gold), title: const Text('الأعمال الناقصة'), subtitle: const Text('أعمال مفضلاتك التي لا تملكها في خادمك', style: TextStyle(color: C.muted)), onTap: () => context.push('/missing')),
         ListTile(leading: const Icon(Icons.video_library_rounded, color: C.gold), title: const Text('مكتبة Stash'), subtitle: const Text('كل فيديوهات خادمك: بحث، ترتيب، تابع المشاهدة', style: TextStyle(color: C.muted)), onTap: () => context.push('/stash')),
         ListTile(leading: const Icon(Icons.slow_motion_video_rounded, color: C.gold), title: const Text('الشبكة والمقاطع'), subtitle: const Text('الخوادم على شبكتك، المقاطع المحفوظة، التحميل المسبق والليلي', style: TextStyle(color: C.muted)), onTap: () => context.push('/network')),

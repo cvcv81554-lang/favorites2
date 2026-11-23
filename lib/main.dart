@@ -12,6 +12,7 @@ import 'ui/core/user_font.dart';
 import 'ui/features/discover/candidate_screen.dart';
 import 'ui/features/discover/discover_screen.dart';
 import 'ui/features/discover/taste_map_screen.dart';
+import 'ui/features/faces/faces_screen.dart';
 import 'ui/features/find/find_screen.dart';
 import 'ui/features/home/home_screen.dart';
 import 'ui/features/library/library_screen.dart';
@@ -64,6 +65,8 @@ final _router = GoRouter(
     GoRoute(path: '/reels', builder: (_, _) => const ReelsScreen()),
     GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
     GoRoute(path: '/stash', builder: (_, _) => const StashLibraryScreen()),
+    GoRoute(path: '/faces', builder: (_, _) => const FaceSearchScreen()),
+    GoRoute(path: '/faces/album', builder: (_, s) => FaceAlbumScreen(performerId: s.uri.queryParameters['p'] ?? '')),
     GoRoute(path: '/missing', builder: (_, s) => MissingScreen(performerId: s.uri.queryParameters['p'])),
     GoRoute(path: '/taste-map', builder: (_, s) => TasteMapScreen(tab: int.tryParse(s.uri.queryParameters['tab'] ?? '') ?? 0)),
     GoRoute(path: '/c/:sid', builder: (_, s) => CandidateScreen(stashId: s.pathParameters['sid']!, why: (s.extra as List?)?.cast<String>() ?? const [])),

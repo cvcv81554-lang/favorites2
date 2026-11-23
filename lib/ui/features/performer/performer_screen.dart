@@ -56,6 +56,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               if (v == 'del') { _delete(p); return; }
               if (v == 'lists') { showListsSheet(context, ref, p); return; }
               if (v == 'missing') { context.push('/missing?p=${p.id}'); return; }
+              if (v == 'faces') { context.push('/faces/album?p=${p.id}'); return; }
               if (v == 'photos') {
                 final m = ScaffoldMessenger.of(context);
                 final n = await addPhotosFromGallery(ref, p);
@@ -74,6 +75,7 @@ class _PerformerScreenState extends ConsumerState<PerformerScreen> {
               const PopupMenuItem(value: 'photos', child: Text('إضافة صور من الجهاز')),
               const PopupMenuItem(value: 'lists', child: Text('القوائم')),
               if (p.works.isNotEmpty) const PopupMenuItem(value: 'missing', child: Text('أعمالها الناقصة في خادمك')),
+              if (p.photos.length >= 2) const PopupMenuItem(value: 'faces', child: Text('فحص صورها بالوجه')),
               PopupMenuItem(value: 'link', child: Text(p.stashId.isEmpty && p.pdbId.isEmpty ? 'ربط بمصدر رسمي' : 'ربط بمصدر آخر')),
               const PopupMenuItem(value: 'del', child: Text('حذف')),
             ]),
