@@ -34,7 +34,7 @@ class NativeBridge {
   static Future<String> faceStatus() async => await _call<String>('faceStatus') ?? 'unsupported';
 
   /// تجهيز النموذج من ملف .mlmodel منزَّل: يُترجَم على الجهاز ويُحفظ (مرة واحدة).
-  static Future<bool> faceInstall(String mlmodelPath) async => await _call<bool>('faceInstall', {'path': mlmodelPath}) ?? false;
+  static Future<bool> faceInstall(String mlmodelPath, String sha256Hex) async => await _call<bool>('faceInstall', {'path': mlmodelPath, 'sha256': sha256Hex}) ?? false;
 
   /// بصمة أكبر وجه في الصورة (512 رقمًا، مُطبَّعة) — null إن لم يوجد وجه أو تعذّر.
   /// [faces]: عدد الوجوه في الصورة (للتنبيه إن كانت صورة جماعية).

@@ -63,4 +63,11 @@ void main() {
     final r = rankByFace(her2, {'a': c, 'b': other, 'm': c}, [a, b, m]);
     expect(r.map((x) => x.$1.id), ['a', 'b']);
   });
+
+  test('نموذج الوجوه مثبّت على نسخة محددة وبصمة SHA-256 وحجم', () {
+    expect(Faces.modelUrl, contains('/resolve/fac7fea8becbb1963b80670cad1ee1eca4b38fb7/'));
+    expect(Faces.modelUrl.contains('/resolve/main/'), isFalse);
+    expect(RegExp(r'^[0-9a-f]{64}$').hasMatch(Faces.modelSha256), isTrue);
+    expect(Faces.modelBytes, 130356005);
+  });
 }

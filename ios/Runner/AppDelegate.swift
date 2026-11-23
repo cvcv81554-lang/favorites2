@@ -3,6 +3,7 @@ import UIKit
 import Vision
 import CoreML
 import CoreImage
+import CryptoKit
 import workmanager_apple
 #if canImport(FoundationModels)
 import FoundationModels
@@ -61,8 +62,8 @@ final class FavNative {
     case "faceStatus":
       result(FileManager.default.fileExists(atPath: FavNative.compiledURL.path) ? "ready" : "missing")
     case "faceInstall":
-      let path = args["path"] as? String ?? ""
-      queue.async { let ok = self.install(path); DispatchQueue.main.async { result(ok) } }
+      let path = args["path"] as? String ?? "", sha = (args["sha256"] as? String ?? "").lowercased()
+      queue.async { let ok = self.install(path, sha); DispatchQueue.main.async { result(ok) } }
     case "faceEmbed":
       guard let d = args["image"] as? FlutterStandardTypedData else { result(nil); return }
       queue.async { let r = self.embed(d.data); DispatchQueue.main.async { result(r) } }
@@ -114,8 +115,12 @@ final class FavNative {
   }
 
   // ===== تمييز الوجوه =====
-  private func install(_ path: String) -> Bool {
+  /// يُثبَّت النموذج فقط إن طابقت بصمته SHA-256 القيمة المثبّتة في التطبيق (تحقق ثانٍ على الجانب الأصلي).
+  private func install(_ path: String, _ sha: String) -> Bool {
     let src = URL(fileURLWithPath: path)
+    guard sha.count == 64, let data = try? Data(contentsOf: src, options: .mappedIfSafe) else { return false }
+    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    guard digest == sha else { return false }
     do {
       let compiled = try MLModel.compileModel(at: src)
       let fm = FileManager.default

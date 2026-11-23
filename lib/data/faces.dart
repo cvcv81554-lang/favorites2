@@ -14,7 +14,10 @@ import 'platform/native_bridge.dart';
 /// لا تُرسل أي صورة لأي جهة؛ الطلب الوحيد للشبكة هو تنزيل النموذج نفسه (مرة واحدة).
 /// البصمات محفوظة في قاعدة التطبيق المحلية (kv: face_emb)، ولا تدخل النسخة الاحتياطية.
 class Faces {
-  static const modelUrl = 'https://huggingface.co/RuiSumida/AuraFace-v1-CoreML/resolve/main/FaceEmbedding.mlmodel';
+  /// مثبّت على نسخة محددة (commit) ومُتحقق من بصمته وحجمه قبل التثبيت — لا يُشغَّل ملف غير مطابق.
+  static const modelUrl = 'https://huggingface.co/RuiSumida/AuraFace-v1-CoreML/resolve/fac7fea8becbb1963b80670cad1ee1eca4b38fb7/FaceEmbedding.mlmodel';
+  static const modelSha256 = '9cb10bef2141a36619bb1fdbf1e0e14e2519c6da4b7e9b9969a4d67702d7122b';
+  static const modelBytes = 130356005;
   static const modelMb = 130;
   /// عتبات التشابه (جيب التمام): لنماذج ArcFace عادةً نفس الشخص > 0.4، وشخصان مختلفان < 0.25.
   static const same = .45, maybe = .30;
@@ -23,9 +26,9 @@ class Faces {
 
   /// تنزيل النموذج (130 م.ب) ثم ترجمته على الجهاز.
   static Future<bool> install({void Function(double)? onProgress}) async {
-    final path = await downloadModelFile(modelUrl, 'FaceEmbedding.mlmodel', onProgress: onProgress);
+    final path = await downloadModelFile(modelUrl, 'FaceEmbedding.mlmodel', sha256Hex: modelSha256, size: modelBytes, onProgress: onProgress);
     if (path == null) return false;
-    return NativeBridge.faceInstall(path);
+    return NativeBridge.faceInstall(path, modelSha256);
   }
 
   static String _key(String ref) => sha1.convert(utf8.encode(ref)).toString().substring(0, 20);

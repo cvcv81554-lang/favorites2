@@ -15,8 +15,8 @@ class Library extends AsyncNotifier<List<Performer>> {
   @override
   Future<List<Performer>> build() async {
     _repo = await ref.watch(repoProvider.future);
-    // وضع العرض التجريبي (ويب فقط، ?demo=1): بيانات محايدة في الذاكرة، لا تُحفظ
-    if (kIsWeb && Uri.base.queryParameters['demo'] == '1') { _demo = true; return demoLibrary(); }
+    // وضع العرض التجريبي (ويب ?demo=1، أو اختبارات محاكي الآيفون: --dart-define=DEMO=true): بيانات محايدة في الذاكرة، لا تُحفظ
+    if ((kIsWeb && Uri.base.queryParameters['demo'] == '1') || const bool.fromEnvironment('DEMO')) { _demo = true; return demoLibrary(); }
     return _repo!.loadAll();
   }
   bool _demo = false;
