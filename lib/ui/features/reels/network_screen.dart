@@ -83,6 +83,10 @@ class _NetworkState extends ConsumerState<NetworkScreen> {
             TextButton(onPressed: pf.running ? null : () async { await clearClipCache(); await ref.read(prefetchProvider.notifier).refreshStats(); }, child: const Text('مسح المحفوظ', style: TextStyle(color: C.danger))),
           ]),
         ]),
+        card('الجودة', [
+          SwitchListTile(contentPadding: EdgeInsets.zero, value: cfg.hqOnly, onChanged: (v) => cn.set(cfg.copy(hqOnly: v)), title: const Text('إعلانات حقيقية فقط'),
+            subtitle: const Text('يتخطى المعاينات القصيرة بلا صوت أو أقل من 480p (تُقاس عند التشغيل)، ويستبعد الخادم الذي معظم مقاطعه معاينات', style: TextStyle(color: C.muted, fontSize: 12.5))),
+        ]),
         card('التحميل المسبق', [
           SwitchListTile(contentPadding: EdgeInsets.zero, value: cfg.prefetch, onChanged: (v) => cn.set(cfg.copy(prefetch: v)), title: const Text('حمّل المقاطع القادمة مسبقًا'),
             subtitle: const Text('على Wi-Fi فقط، أثناء استخدامك للتطبيق — فتعمل فورًا بلا انتظار ولا انقطاع', style: TextStyle(color: C.muted, fontSize: 12.5))),
@@ -98,7 +102,7 @@ class _NetworkState extends ConsumerState<NetworkScreen> {
         ]),
         card('خوادم المقاطع على شبكتك', [
           Text('${count.values.fold<int>(0, (a, b) => a + b)} مقطعًا · ${hosts.length} خادمًا · يعمل $okN · محجوب $badN', style: const TextStyle(color: C.muted)),
-          const Text('مقاطع الخوادم المحجوبة تظهر «صورًا» بدل أن تختفي، ويُعاد فحصها كل 6 ساعات.', style: TextStyle(color: C.muted, fontSize: 12)),
+          const Text('مقاطع الخوادم المحجوبة تُخفى، ويُعاد فحصها كل 6 ساعات — وتظهر تلقائيًا متى صارت شبكتك تصلها.', style: TextStyle(color: C.muted, fontSize: 12)),
           Row(children: [
             TextButton.icon(onPressed: _probing ? null : _recheck, icon: _probing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh_rounded), label: const Text('إعادة الفحص')),
             if (_probeMsg.isNotEmpty) Expanded(child: Text(_probeMsg, style: const TextStyle(color: C.muted, fontSize: 12))),

@@ -11,16 +11,17 @@ const clipsTaskId = 'com.favlib.favorites2.clips';
 
 /// إعدادات «الشبكة والمقاطع».
 class ReelsCfg {
-  final bool prefetch, night, catchUp, sound; final int count, gb;
-  const ReelsCfg({this.prefetch = true, this.night = true, this.catchUp = true, this.sound = true, this.count = 100, this.gb = 3});
-  Map<String, dynamic> toJson() => {'pf': prefetch, 'night': night, 'cu': catchUp, 'snd': sound, 'n': count, 'gb': gb};
+  /// [hqOnly]: إعلانات حقيقية فقط (بصوت و480p فأعلى) — المعاينات الصامتة منخفضة الجودة تُتخطى.
+  final bool prefetch, night, catchUp, sound, hqOnly; final int count, gb;
+  const ReelsCfg({this.prefetch = true, this.night = true, this.catchUp = true, this.sound = true, this.hqOnly = true, this.count = 100, this.gb = 3});
+  Map<String, dynamic> toJson() => {'pf': prefetch, 'night': night, 'cu': catchUp, 'snd': sound, 'hq': hqOnly, 'n': count, 'gb': gb};
   factory ReelsCfg.fromJson(Object? j) {
     final m = j is Map ? j : const {};
-    return ReelsCfg(prefetch: m['pf'] != false, night: m['night'] != false, catchUp: m['cu'] != false, sound: m['snd'] != false,
+    return ReelsCfg(prefetch: m['pf'] != false, night: m['night'] != false, catchUp: m['cu'] != false, sound: m['snd'] != false, hqOnly: m['hq'] != false,
       count: (m['n'] as num?)?.toInt() ?? 100, gb: (m['gb'] as num?)?.toInt() ?? 3);
   }
-  ReelsCfg copy({bool? prefetch, bool? night, bool? catchUp, bool? sound, int? count, int? gb}) =>
-    ReelsCfg(prefetch: prefetch ?? this.prefetch, night: night ?? this.night, catchUp: catchUp ?? this.catchUp, sound: sound ?? this.sound, count: count ?? this.count, gb: gb ?? this.gb);
+  ReelsCfg copy({bool? prefetch, bool? night, bool? catchUp, bool? sound, bool? hqOnly, int? count, int? gb}) =>
+    ReelsCfg(prefetch: prefetch ?? this.prefetch, night: night ?? this.night, catchUp: catchUp ?? this.catchUp, sound: sound ?? this.sound, hqOnly: hqOnly ?? this.hqOnly, count: count ?? this.count, gb: gb ?? this.gb);
 }
 
 /// قائمة التحميل: ترتيب الخلاصة نفسه (ما ستراه أولًا)، مقاطع حقيقية فقط، والخوادم العاملة.

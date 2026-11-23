@@ -123,3 +123,23 @@ bool hostStale(Map? h, int now) => h == null || now - ((h['t'] as num?) ?? 0) > 
 bool hostUsable(Map<String, dynamic> hosts, String url) => (hosts[hostOf(url)] as Map?)?['ok'] != false;
 /// خطأ تشغيل يعني حجب الشبكة (لا خطأ في المقطع نفسه).
 bool looksBlocked(String err) => RegExp(r'TLS|-1200|-1005|reset|Handshake|connection was lost|closed', caseSensitive: false).hasMatch(err);
+
+
+// ===================== جودة المقاطع (تُقاس عند التشغيل) =====================
+
+/// مقطع «معاينة» لا إعلان: بلا صوت أو أقل من 480p.
+bool isPreviewClip(Map? q) => q != null && (q['a'] == 0 || ((q['h'] as num?) ?? 9999) < 480);
+
+/// خادم معظم مقاطعه معاينات (3 قياسات فأكثر و70٪ منها معاينات) ⇒ يُستبعد في وضع «إعلانات حقيقية فقط».
+bool isPreviewHost(Map<String, dynamic> quality, String host) {
+  var n = 0, bad = 0;
+  quality.forEach((u, q) { if (hostOf(u) == host && q is Map) { n++; if (isPreviewClip(q)) bad++; } });
+  return n >= 3 && bad / n >= .7;
+}
+
+/// هل يُعرض المقطع حسب الجودة المقاسة؟ (غير المقاس يُجرَّب)
+bool qualityOk(Map<String, dynamic> quality, String url, {required bool hqOnly}) {
+  if (!hqOnly) return true;
+  if (isPreviewClip(quality[url] as Map?)) return false;
+  return !isPreviewHost(quality, hostOf(url));
+}

@@ -61,7 +61,7 @@ class ReelsScreen extends ConsumerStatefulWidget {
 class _ReelsState extends ConsumerState<ReelsScreen> {
   final _pc = PageController();
   List<Reel>? _feed; int _cur = 0; bool _favsOnly = true, _muted = true, _busy = false, _preparing = false; String _msg = '';
-  Map<String, dynamic> _hosts = {}; int _hidden = 0;
+  Map<String, dynamic> _hosts = {}, _quality = {}; int _hidden = 0; bool _hqOnly = true;
   int _seed = DateTime.now().millisecondsSinceEpoch;
   final _liked = <String>{};
 
@@ -73,12 +73,12 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
     final sig = ref.read(reelSigProvider).value ?? const ReelSignals({}, {});
     bool cached(String u) => _cached.contains(clipKeyOf(u));
     _feed = rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: _favsOnly, seed: _seed, n: 200,
-      playable: (u) => hostUsable(_hosts, u) || cached(u), isCached: cached, photoFallback: true);
-    _hidden = _feed!.where((r) => r.photo).length;
+      playable: (u) => (hostUsable(_hosts, u) || cached(u)) && qualityOk(_quality, u, hqOnly: _hqOnly), isCached: cached);
+    _hidden = _scope().where((g) => !hostUsable(_hosts, g.tr) && !cached(g.tr)).length;
     _cur = 0;
     for (final r in _feed!) { if (sig.clips[r.key]?['l'] == 1) _liked.add(r.key); }
     final ready = _feed!.where((r) => !r.photo && cached(r.url)).length;
-    if (_msg.isEmpty) _msg = '${_feed!.length - _hidden} مقطعًا يعمل${ready > 0 ? ' ($ready جاهز على جهازك)' : ''}${_hidden > 0 ? ' · $_hidden «صور» بدل مقاطع خوادمها محجوبة على شبكتك' : ''}';
+    if (_msg.isEmpty) _msg = '${_feed!.length} مقطعًا${ready > 0 ? ' ($ready جاهز على جهازك)' : ''}${_hidden > 0 ? ' · $_hidden مخفي (خوادمها محجوبة على شبكتك)' : ''}';
   }
 
   Iterable<WorkGroup> _scope() => ref.read(worksProvider).where((g) => g.tr.isNotEmpty && (!_favsOnly || g.who.any((p) => p.fav || p.rating >= 4)));
@@ -86,9 +86,10 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
   /// قبل العرض: إعدادات الصوت، المقاطع المحفوظة، وفحص الخوادم غير المفحوصة أو القديمة — فيُعرض ما يعمل والمحفوظ أولًا.
   Future<void> _prepare({bool force = false}) async {
     final cfg = await ref.read(reelsCfgProvider.future);
-    _muted = !cfg.sound;
+    _muted = !cfg.sound; _hqOnly = cfg.hqOnly;
     final repo = await ref.read(repoProvider.future);
     _hosts = await loadHosts(repo);
+    _quality = Map<String, dynamic>.from(await repo.kvGet('reel_quality') as Map? ?? {});
     _cached = (await clipCacheStats()).$1;
     final todo = _scope().map((g) => g.tr);
     if (mounted) setState(() { _preparing = true; _msg = 'فحص خوادم المقاطع على شبكتك…'; });
@@ -158,6 +159,18 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
       onTap: () { Navigator.pop(c); ref.read(reelSigProvider.notifier).dislikeIt(hideKey: r.key); _skip(); }),
   ])));
 
+  /// جودة مقاسة عند التشغيل: الارتفاع، والصوت (1/0، أو غير معروف). المعاينة تُتخطى في وضع «إعلانات حقيقية فقط».
+  Future<void> _onQuality(Reel r, int h, int? audio) async {
+    _quality[r.url] = {'h': h, 'a': ?audio};
+    await (await ref.read(repoProvider.future)).kvSet('reel_quality', _quality);
+    if (!mounted || !_hqOnly || _feed == null) return;
+    if (isPreviewClip(_quality[r.url] as Map)) {
+      final host = hostOf(r.url); final drop = isPreviewHost(_quality, host);
+      setState(() { _feed = [..._feed!.take(_cur + 1), ..._feed!.skip(_cur + 1).where((x) => qualityOk(_quality, x.url, hqOnly: true) && (!drop || hostOf(x.url) != host))]; });
+      if (_feed!.isNotEmpty && _feed![_cur].key == r.key) { setState(() => _msg = 'تخطّينا معاينة ${audio == 0 ? 'بلا صوت' : '${h}p'} — نعرض الإعلانات الحقيقية فقط'); _skip(); }
+    }
+  }
+
   Future<void> _toggleSound() async {
     setState(() => _muted = !_muted);
     final c = await ref.read(reelsCfgProvider.future);
@@ -181,6 +194,7 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
           : _ReelPage(key: ValueKey(feed[i].key), reel: feed[i], active: i == _cur, muted: _muted, liked: _liked.contains(feed[i].key),
               onViewed: (f) => _onViewed(feed[i], f), onLike: () => _like(feed[i]), onMenu: () => _menu(feed[i]), onMute: _toggleSound,
               preferDownload: (_hosts[hostOf(feed[i].url)] as Map?)?['dl'] == true, onDownloaded: () => _markDl(feed[i].url),
+              onQuality: (h, a) => _onQuality(feed[i], h, a),
               onError: (why) { _markBlocked(feed[i].url, why.isEmpty ? 'تعذّر التشغيل والتنزيل' : why); if (i == _cur) Future<void>.delayed(const Duration(seconds: 2), () { if (mounted && _cur == i) _skip(); }); })),
       // الشريط العلوي
       SafeArea(child: Padding(padding: const EdgeInsets.symmetric(horizontal: S.s2), child: Row(children: [
@@ -211,8 +225,8 @@ class _ReelsState extends ConsumerState<ReelsScreen> {
 
 /// مقطع واحد: يعمل حين يكون الحالي، يتكرر، ويحسب نسبة المشاهدة عند المغادرة.
 class _ReelPage extends ConsumerStatefulWidget {
-  const _ReelPage({super.key, required this.reel, required this.active, required this.muted, required this.liked, required this.onViewed, required this.onLike, required this.onMenu, required this.onMute, required this.onError, this.preferDownload = false, required this.onDownloaded});
-  final Reel reel; final bool active, muted, liked, preferDownload; final VoidCallback onDownloaded;
+  const _ReelPage({super.key, required this.reel, required this.active, required this.muted, required this.liked, required this.onViewed, required this.onLike, required this.onMenu, required this.onMute, required this.onError, this.preferDownload = false, required this.onDownloaded, required this.onQuality});
+  final Reel reel; final bool active, muted, liked, preferDownload; final VoidCallback onDownloaded; final void Function(int h, int? audio) onQuality;
   final void Function(double) onViewed; final VoidCallback onLike, onMenu, onMute; final void Function(String why) onError;
   @override ConsumerState<_ReelPage> createState() => _ReelPageState();
 }
@@ -249,6 +263,17 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
     return f == null ? VideoPlayerController.networkUrl(Uri.file(path)) : VideoPlayerController.file(f as dynamic, videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false));
   }
 
+  String _badge = '';
+  /// يقيس الدقة الحقيقية ووجود مسار صوتي (إن دعم النظام ذلك) ويعرضهما على المقطع.
+  Future<void> _measure(VideoPlayerController c) async {
+    final h = c.value.size.height.round();
+    int? audio;
+    try { audio = (await c.getAudioTracks()).isEmpty ? 0 : 1; } catch (_) {}
+    if (!mounted) return;
+    setState(() => _badge = '${h > 0 ? '${h}p' : '?'} · ${audio == null ? '' : audio == 1 ? '🔊' : 'بلا صوت'}');
+    if (h > 0) widget.onQuality(h, audio);
+  }
+
   Future<bool> _open(VideoPlayerController c) async {
     try {
       await c.initialize();
@@ -257,6 +282,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
       c.setLooping(true); c.setVolume(widget.muted ? 0 : 1); c.addListener(_tick);
       if (widget.active && !_paused) c.play();
       setState(() { _err = false; });
+      _measure(c);
       return true;
     } catch (e) { _why = '$e'; try { await c.dispose(); } catch (_) {} return false; }
   }
@@ -302,6 +328,7 @@ class _ReelPageState extends ConsumerState<_ReelPage> {
       child: Stack(fit: StackFit.expand, children: [
         const ColoredBox(color: Colors.black),
         blur ? ImageFiltered(imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24), child: video) : video,
+        if (_badge.isNotEmpty) Positioned(top: 104, right: 12, child: SafeArea(child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: const Color(0x990A0810), borderRadius: BorderRadius.circular(99)), child: Text(_badge, style: const TextStyle(color: Colors.white70, fontSize: 11))))),
         if (_paused) const Center(child: Icon(Icons.play_arrow_rounded, size: 84, color: Colors.white70)),
         if (_heart) const Center(child: Icon(Icons.favorite_rounded, size: 110, color: C.rose)),
         // المعلومات (أسفل) والأزرار (جانبًا)

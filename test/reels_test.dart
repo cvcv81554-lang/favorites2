@@ -85,4 +85,17 @@ void main() {
     expect(looksBlocked('Connection reset by peer'), isTrue);
     expect(looksBlocked('Failed to load video: 404'), isFalse);
   });
+
+  test('الجودة: المعاينة (بلا صوت أو < 480p) تُستبعد، والخادم الذي معظمه معاينات يُستبعد، وغير المقاس يُجرَّب', () {
+    final q = <String, dynamic>{
+      'https://prev.test/1.mp4': {'h': 360, 'a': 1}, 'https://prev.test/2.mp4': {'h': 720, 'a': 0}, 'https://prev.test/3.mp4': {'h': 240},
+      'https://good.test/1.mp4': {'h': 1080, 'a': 1},
+    };
+    expect(isPreviewClip({'h': 720, 'a': 0}), isTrue); expect(isPreviewClip({'h': 1080, 'a': 1}), isFalse); expect(isPreviewClip({'h': 1080}), isFalse);
+    expect(isPreviewHost(q, 'prev.test'), isTrue); expect(isPreviewHost(q, 'good.test'), isFalse);
+    expect(qualityOk(q, 'https://prev.test/9.mp4', hqOnly: true), isFalse);
+    expect(qualityOk(q, 'https://good.test/1.mp4', hqOnly: true), isTrue);
+    expect(qualityOk(q, 'https://new.test/1.mp4', hqOnly: true), isTrue);
+    expect(qualityOk(q, 'https://prev.test/9.mp4', hqOnly: false), isTrue);
+  });
 }

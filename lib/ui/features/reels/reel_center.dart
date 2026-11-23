@@ -55,11 +55,11 @@ Future<List<String>> probeHosts(Map<String, dynamic> hosts, Iterable<String> url
 }
 
 /// الخلاصة كما ستُعرض (مفضلاتك أولًا ثم بقية مكتبتك)، بالخوادم العاملة أو المحفوظ.
-List<Reel> buildFeed(Ref ref, Map<String, dynamic> hosts, Set<String> cachedKeys, {bool favsOnly = true, int seed = 0, bool photo = true, int n = 400}) {
+List<Reel> buildFeed(Ref ref, Map<String, dynamic> hosts, Set<String> cachedKeys, {bool favsOnly = true, int seed = 0, int n = 400, Map<String, dynamic> quality = const {}, bool hqOnly = true}) {
   final sig = ref.read(reelSigProvider).value ?? const ReelSignals({}, {});
   bool cached(String u) => cachedKeys.contains(clipKeyOf(u));
   return rankReels(ref.read(worksProvider), ref.read(workTasteProvider), sig, favsOnly: favsOnly, seed: seed, n: n,
-    playable: (u) => hostUsable(hosts, u) || cached(u), isCached: cached, photoFallback: photo);
+    playable: (u) => (hostUsable(hosts, u) || cached(u)) && qualityOk(quality, u, hqOnly: hqOnly), isCached: cached);
 }
 
 /// كل روابط المقاطع في المكتبة.
@@ -102,7 +102,8 @@ class PrefetchN extends Notifier<PrefetchState> {
       await saveHosts(repo, hosts);
       final keys = (await clipCacheStats()).$1;
       final day = DateTime.now(); final seed = day.year * 400 + day.month * 32 + day.day;   // ترتيب ثابت طوال اليوم
-      final order = <String>{...priority, ...prefetchOrder(buildFeed(ref, hosts, keys, seed: seed, photo: false)), ...prefetchOrder(buildFeed(ref, hosts, keys, favsOnly: false, seed: seed, photo: false))}.toList();
+      final quality = Map<String, dynamic>.from(await repo.kvGet('reel_quality') as Map? ?? {});
+      final order = <String>{...priority, ...prefetchOrder(buildFeed(ref, hosts, keys, seed: seed, quality: quality, hqOnly: cfg.hqOnly)), ...prefetchOrder(buildFeed(ref, hosts, keys, favsOnly: false, seed: seed, quality: quality, hqOnly: cfg.hqOnly))}.toList();
       await writeClipsInput(order, cfg);
       await scheduleNight(cfg);
       final r = await prefetchClips(order, max: cfg.count, cancelled: () => _stop, progress: (h, w) => state = state.copy(have: h, want: w, msg: 'تحميل مسبق: $h / $w'));
